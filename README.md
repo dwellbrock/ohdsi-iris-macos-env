@@ -11,6 +11,7 @@ Images are pulled from GHCR; database state is restored from volume snapshots.
 
 ## Prerequisites
 - [Docker Desktop for macOS (Apple Silicon)](https://www.docker.com/products/docker-desktop/)
+- [Homebrew](https://brew.sh/) (package manager for macOS, required for installing `gh`)
 - [GitHub CLI (`gh`)](https://cli.github.com/) for automated release downloads  
   *(Alternatively, download volume tarballs manually from the [Releases](https://github.com/dwellbrock/ohdsi-iris-macos-env/releases) page)*
 
@@ -26,7 +27,7 @@ All commands below should be run in your macOS Terminal.
 
 2. Install GitHub CLI (if not already installed) and download volume snapshots:
    
-   Note – This step Homebrew. If you don’t already have Homebrew, install it first:
+   Note – This step requires Homebrew. If you don’t already have Homebrew, install it first:
    ```bash
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
    ```
