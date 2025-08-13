@@ -71,20 +71,39 @@ services:
       - ${BROADSEA_CERTS_FOLDER}:/etc/certs:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
+  # broadsea-content:
+  #   profiles: [ "default", "content" ]
+  #   image: ghcr.io/dwellbrock/broadsea-content:2025-08-12
+  #   container_name: broadsea-content
+  #   platform: "linux/arm64"
+  #   restart: unless-stopped
+  #   labels:
+  #     - "traefik.enable=true"
+
   broadsea-content:
     profiles: [ "default", "content" ]
-    image: ghcr.io/dwellbrock/broadsea-content:2025-08-12
     container_name: broadsea-content
-    platform: "linux/arm64"
+    platform: "linux/amd64"
+    build:
+      context: ./content
+      args:
+        CONTENT_TITLE: ${CONTENT_TITLE}
+        CONTENT_ARES_DISPLAY: ${CONTENT_ARES_DISPLAY}
+        CONTENT_ATLAS_DISPLAY: ${CONTENT_ATLAS_DISPLAY}
+        CONTENT_HADES_DISPLAY: ${CONTENT_HADES_DISPLAY}
+        CONTENT_PERSEUS_DISPLAY: ${CONTENT_PERSEUS_DISPLAY}
+        CONTENT_OPENSHINYSERVER_DISPLAY: ${CONTENT_OPENSHINYSERVER_DISPLAY}
+        CONTENT_POSITCONNECT_DISPLAY: ${CONTENT_POSITCONNECT_DISPLAY}
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
 
   # Custom RStudio/HADES image you committed (includes your M2 package set)
+
   broadsea-hades:
     profiles: [ "default", "hades" ]
-    image: ghcr.io/dwellbrock/broadsea-hades-m2:2025-08-12
     container_name: broadsea-hades
+    image: ghcr.io/dwellbrock/broadsea-hades-m2:2025-08-12
     platform: "linux/arm64"
     secrets:
       - HADES_PASSWORD
