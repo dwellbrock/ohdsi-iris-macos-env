@@ -16,6 +16,8 @@ Images are pulled from GHCR; database state is restored from volume snapshots.
 
 ## Quick start
 
+All commands below should be run in your macOS Terminal.
+
 1. Clone the repo and enter it:
    ```bash
    git clone https://github.com/dwellbrock/ohdsi-iris-macos-env.git
