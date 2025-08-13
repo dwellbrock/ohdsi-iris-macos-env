@@ -12,9 +12,12 @@ services:
       - /tmp
     privileged: false
     volumes:
-      - ${WEBAPI_CACERTS_FILE}:/tmp/cacerts
-      - ${WEBAPI_ADDITIONAL_JDBC_FILE_PATH}:/var/lib/ohdsi/webapi/lib/additional/broadsea_mounted.jar
-      - ../webapi/docker-entrypoint.sh:/entrypoint.sh
+    volumes:
+      # don’t need a truststore, this default points to a local placeholder file
+      - ${WEBAPI_CACERTS_FILE:-./truststore/cacerts}:/tmp/cacerts:ro
+      # don’t need an extra JDBC driver, mount a harmless placeholder jar
+      - ${WEBAPI_ADDITIONAL_JDBC_FILE_PATH:-./webapi/blank.jar}:/var/lib/ohdsi/webapi/lib/additional/broadsea_mounted.jar:ro
+      - ../webapi/docker-entrypoint.sh:/entrypoint.sh:ro
     entrypoint: ["/bin/sh","/entrypoint.sh"]
     secrets:
       - WEBAPI_DATASOURCE_PASSWORD
