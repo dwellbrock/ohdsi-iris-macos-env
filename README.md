@@ -17,19 +17,25 @@ Images are pulled from GHCR; database state is restored from volume snapshots.
 ## Quick start
 
 1. Clone the repo and enter it:
+   ```bash
    git clone https://github.com/dwellbrock/ohdsi-iris-macos-env.git
    cd ohdsi-iris-macos-env
+   ```
 
 2. Install GitHub CLI (if not already installed) and download volume snapshots:
+   ```bash
    brew install gh
    mkdir -p ./bundle/volumes
    gh release download --repo dwellbrock/ohdsi-iris-macos-env --pattern "*.tar" --dir bundle/volumes --clobber
+   ```
 
 3. Restore data & start the stack:
+   ```bash
    ./scripts/restore.sh
    If you get a permission error:
    chmod +x scripts/restore.sh
    ./scripts/restore.sh
+   ```
 
 ## URLs
 - IRIS Portal → http://localhost:52773/csp/sys/UtilHome.csp  
