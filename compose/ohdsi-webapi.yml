@@ -12,7 +12,6 @@ services:
       - /tmp
     privileged: false
     volumes:
-    volumes:
       # don’t need a truststore, this default points to a local placeholder file
       - ${WEBAPI_CACERTS_FILE:-./truststore/cacerts}:/tmp/cacerts:ro
       # don’t need an extra JDBC driver, mount a harmless placeholder jar
