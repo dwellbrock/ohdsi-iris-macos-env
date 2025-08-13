@@ -16,7 +16,7 @@ services:
       # don’t need a truststore, this default points to a local placeholder file
       - ${WEBAPI_CACERTS_FILE:-./truststore/cacerts}:/tmp/cacerts:ro
       # don’t need an extra JDBC driver, mount a harmless placeholder jar
-      - ${WEBAPI_ADDITIONAL_JDBC_FILE_PATH:-./webapi/blank.jar}:/var/lib/ohdsi/webapi/lib/additional/broadsea_mounted.jar:ro
+      - ${WEBAPI_ADDITIONAL_JDBC_FILE_PATH:-./jdbc/intersystems-jdbc-3.10.3.jar}:/var/lib/ohdsi/webapi/lib/additional/intersystems-jdbc-3.10.3.jar:ro
       - ../webapi/docker-entrypoint.sh:/entrypoint.sh:ro
     entrypoint: ["/bin/sh","/entrypoint.sh"]
     secrets:
@@ -31,7 +31,7 @@ services:
       - SECURITY_SAML_KEYMANAGER_PASSWORDS_ARACHNENETWORK
       - WEBAPI_CDM_SNOWFLAKE_PRIVATE_KEY
     environment:
-      CLASSPATH: ":/var/lib/ohdsi/webapi/lib/additional/broadsea_mounted.jar"
+      CLASSPATH: ":/var/lib/ohdsi/webapi/lib/additional:/var/lib/ohdsi/webapi/lib/additional/intersystems-jdbc-3.10.3.jar"
       DATASOURCE_DRIVERCLASSNAME: org.postgresql.Driver
       DATASOURCE_URL: ${WEBAPI_DATASOURCE_URL}
       DATASOURCE_USERNAME: ${WEBAPI_DATASOURCE_USERNAME}
