@@ -25,8 +25,23 @@ All commands below should be run in your macOS Terminal.
    ```
 
 2. Install GitHub CLI (if not already installed) and download volume snapshots:
+   
+   Note – This step Homebrew. If you don’t already have Homebrew, install it first:
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+   Then install GitHub CLI:
    ```bash
    brew install gh
+   ```
+   First-time only: authenticate GitHub CLI so it can access Releases:
+   ```bash
+   # Follow prompts, choose "HTTPS" and "No" for SSH key, then authenticate via browser.
+   gh auth login
+   ```
+   Finally, download volume snapshots:
+   ```bash
    mkdir -p ./bundle/volumes
    gh release download --repo dwellbrock/ohdsi-iris-macos-env --pattern "*.tar" --dir bundle/volumes --clobber
    ```
