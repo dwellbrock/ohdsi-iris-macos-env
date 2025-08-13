@@ -17,17 +17,68 @@ echo "==> Bundle dir: $BUNDLE_DIR"
 echo "==> Volume dir: $VOLDIR"
 echo "==> Secrets dir: $SECRETS_DIR"
 
-# 0) Prepare secrets we actually need (HADES password only)
+# 0) Ensure required secret files exist (Compose will fail hard if missing)
 mkdir -p "$SECRETS_DIR"
 
-# Try to read HADES_PASSWORD from .env if present (optional)
-HADES_PASSWORD_DEFAULT="mypass"
+# Load .env if present to pick up *_FILE paths and HADES_PASSWORD
 if [ -f ".env" ]; then
   # shellcheck disable=SC1091
   . ./.env 2>/dev/null || true
 fi
-HADES_PASSWORD_VALUE="${HADES_PASSWORD:-$HADES_PASSWORD_DEFAULT}"
-printf "%s" "$HADES_PASSWORD_VALUE" > "$SECRETS_DIR/hades_password.txt"
+
+# Helper: ensure a secret file exists with content
+ensure_secret() {
+  local path="$1"
+  local value="$2"
+  if [ ! -f "$path" ]; then
+    printf "%s" "$value" > "$path"
+  fi
+}
+
+# Defaults if *_FILE vars are unset
+: "${HADES_PASSWORD:=mypass}"
+: "${HADES_PASSWORD_FILE:=./secrets/hades_password.txt}"
+: "${GITHUB_PAT_SECRET_FILE:=./secrets/github_pat.txt}"
+: "${WEBAPI_DATASOURCE_PASSWORD_FILE:=./secrets/webapi_datasource_password.txt}"
+: "${SECURITY_LDAP_SYSTEM_PASSWORD_FILE:=./secrets/openldap_admin_password.txt}"
+: "${SECURITY_DB_DATASOURCE_PASSWORD_FILE:=./secrets/security_db_password.txt}"
+: "${SECURITY_AD_SYSTEM_PASSWORD_FILE:=./secrets/security_ad_password.txt}"
+: "${SECURITY_OAUTH_GOOGLE_APISECRET_FILE:=./secrets/google_api_secret.txt}"
+: "${SECURITY_OAUTH_FACEBOOK_APISECRET_FILE:=./secrets/facebook_api_secret.txt}"
+: "${SECURITY_OAUTH_GITHUB_APISECRET_FILE:=./secrets/github_oauth_secret.txt}"
+: "${SECURITY_SAML_KEYMANAGER_STOREPASSWORD_FILE:=./secrets/saml_store_password.txt}"
+: "${SECURITY_SAML_KEYMANAGER_PASSWORDS_ARACHNENETWORK_FILE:=./secrets/saml_arachne_password.txt}"
+: "${SOLR_VOCAB_JDBC_PASSWORD_FILE:=./secrets/solr_vocab_jdbc_password.txt}"
+: "${VOCAB_PG_PASSWORD_FILE:=./secrets/vocab_pg_password.txt}"
+: "${OPENLDAP_ADMIN_PASSWORD_FILE:=./secrets/openldap_admin_password.txt}"
+: "${OPENLDAP_ACCOUNT_PASSWORDS_FILE:=./secrets/openldap_accounts_passwords.txt}"
+: "${PHOEBE_PG_PASSWORD_FILE:=./secrets/phoebe_pg_password.txt}"
+: "${UMLS_API_KEY_FILE:=./secrets/umls_api_key.txt}"
+: "${CDM_CONNECTIONDETAILS_PASSWORD_FILE:=./secrets/cdm_connectiondetails_password.txt}"
+: "${WEBAPI_CDM_SNOWFLAKE_PRIVATE_KEY_FILE:=./secrets/webapi_cdm_snowflake_private_key.txt}"
+: "${PGADMIN_DEFAULT_PASSWORD_FILE:=./secrets/pgadmin_default_password.txt}"
+
+# Create secrets (real values where we know them; placeholders elsewhere)
+ensure_secret "$HADES_PASSWORD_FILE"                 "$HADES_PASSWORD"
+ensure_secret "$WEBAPI_DATASOURCE_PASSWORD_FILE"     "mypass"
+ensure_secret "$GITHUB_PAT_SECRET_FILE"              "placeholder"
+ensure_secret "$SECURITY_LDAP_SYSTEM_PASSWORD_FILE"  "placeholder"
+ensure_secret "$SECURITY_DB_DATASOURCE_PASSWORD_FILE" "placeholder"
+ensure_secret "$SECURITY_AD_SYSTEM_PASSWORD_FILE"    "placeholder"
+ensure_secret "$SECURITY_OAUTH_GOOGLE_APISECRET_FILE" "placeholder"
+ensure_secret "$SECURITY_OAUTH_FACEBOOK_APISECRET_FILE" "placeholder"
+ensure_secret "$SECURITY_OAUTH_GITHUB_APISECRET_FILE" "placeholder"
+ensure_secret "$SECURITY_SAML_KEYMANAGER_STOREPASSWORD_FILE" "placeholder"
+ensure_secret "$SECURITY_SAML_KEYMANAGER_PASSWORDS_ARACHNENETWORK_FILE" "placeholder"
+ensure_secret "$SOLR_VOCAB_JDBC_PASSWORD_FILE"       "placeholder"
+ensure_secret "$VOCAB_PG_PASSWORD_FILE"              "placeholder"
+ensure_secret "$OPENLDAP_ADMIN_PASSWORD_FILE"        "placeholder"
+ensure_secret "$OPENLDAP_ACCOUNT_PASSWORDS_FILE"     "placeholder"
+ensure_secret "$PHOEBE_PG_PASSWORD_FILE"             "placeholder"
+ensure_secret "$UMLS_API_KEY_FILE"                   "placeholder"
+ensure_secret "$CDM_CONNECTIONDETAILS_PASSWORD_FILE" "placeholder"
+ensure_secret "$WEBAPI_CDM_SNOWFLAKE_PRIVATE_KEY_FILE" "placeholder"
+ensure_secret "$PGADMIN_DEFAULT_PASSWORD_FILE"       "placeholder"
 
 # 1) Validate volumes bundle
 if [ ! -d "$VOLDIR" ]; then
@@ -36,7 +87,6 @@ if [ ! -d "$VOLDIR" ]; then
   exit 1
 fi
 
-# Find tarballs
 shopt -s nullglob
 tars=( "$VOLDIR"/*.tar )
 if [ ${#tars[@]} -eq 0 ]; then
@@ -61,7 +111,7 @@ for tarfile in "${tars[@]}"; do
     sh -c "cd /target && tar -xf /backup/${volname}.tar"
 done
 
-# 4) IRIS ownership fix (irisowner uid/gid = 51773)
+# 4) IRIS ownership fix (irisowner uid/gid = 51773) — override image entrypoint
 echo ">>> Fixing IRIS volume ownership (dbvolume)"
 docker run --rm -u 0 \
   -v dbvolume:/durable \
@@ -81,4 +131,4 @@ echo "Open:"
 echo "  - IRIS:   http://localhost:52773/csp/sys/UtilHome.csp"
 echo "  - WebAPI: http://localhost/webapi/WebAPI/info"
 echo "  - ATLAS:  http://localhost/atlas"
-echo "  - RStudio: http://localhost:8787  (user: ${HADES_USER:-ohdsi} / pass: ${HADES_PASSWORD_VALUE})"
+echo "  - RStudio: http://localhost:8787  (user: ${HADES_USER:-ohdsi} / pass: ${HADES_PASSWORD})"
