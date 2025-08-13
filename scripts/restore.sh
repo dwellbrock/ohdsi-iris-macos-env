@@ -63,8 +63,11 @@ done
 
 # 4) IRIS ownership fix (irisowner uid/gid = 51773)
 echo ">>> Fixing IRIS volume ownership (dbvolume)"
-docker run --rm -u 0 -v dbvolume:/durable intersystems/iris-community:2025.1 \
-  chown -R 51773:51773 /durable || true
+docker run --rm -u 0 \
+  -v dbvolume:/durable \
+  --entrypoint /bin/chown \
+  intersystems/iris-community:2025.1 \
+  -R 51773:51773 /durable || true
 
 # 5) Pull + start
 echo ">>> Pulling images"
