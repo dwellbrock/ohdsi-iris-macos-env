@@ -52,7 +52,7 @@ services:
       - dbvolume:/durable
 
   traefik:
-    image: ghcr.io/dwellbrock/traefik:2025-08-12
+    image: docker.io/library/traefik:v2.11.2
     container_name: traefik
     restart: unless-stopped
     ipc: none
@@ -60,7 +60,7 @@ services:
     environment:
       BROADSEA_HOST: ${BROADSEA_HOST}
     labels:
-      - "traefik.enable=true"
+     - "traefik.enable=true"
     ports:
       - "80:80"
       - "443:443"
