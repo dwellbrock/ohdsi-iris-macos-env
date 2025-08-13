@@ -10,43 +10,65 @@ Images are pulled from GHCR; database state is restored from volume snapshots.
 - **Traefik** reverse proxy (HTTP/HTTPS)
 
 ## Prerequisites
-- Docker Desktop for macOS (Apple Silicon)
-- (If images are private) a GHCR Personal Access Token with `read:packages`
+- [Docker Desktop for macOS (Apple Silicon)](https://www.docker.com/products/docker-desktop/)
+- [Homebrew](https://brew.sh/) (package manager for macOS, required for installing `gh`)
+- [GitHub CLI (`gh`)](https://cli.github.com/) for automated release downloads  
+  *(Alternatively, download volume tarballs manually from the [Releases](https://github.com/dwellbrock/ohdsi-iris-macos-env/releases) page)*
 
 ## Quick start
 
-1. Clone and enter the repo:
+All commands below should be run in your macOS Terminal.
+
+1. Clone the repo and enter it:
+   ```bash
    git clone https://github.com/dwellbrock/ohdsi-iris-macos-env.git
    cd ohdsi-iris-macos-env
+   ```
 
-2. Login to GHCR (skip if images are public):
-   echo "<YOUR_GHCR_TOKEN>" | docker login ghcr.io -u dwellbrock --password-stdin
+2. Install GitHub CLI (if not already installed) and download volume snapshots:
+   
+   Note – This step requires Homebrew. If you don’t already have Homebrew, install it first:
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
 
-3. Download volume snapshots from Releases and place them here:
-   ./bundle/volumes/dbvolume.tar
-   ./bundle/volumes/atlasdb-postgres-data.tar
-   ./bundle/volumes/rstudio-home-data.tar
-   ./bundle/volumes/rstudio-tmp-data.tar
+   Then install GitHub CLI:
+   ```bash
+   brew install gh
+   ```
+   First-time only: authenticate GitHub CLI so it can access Releases:
+   ```bash
+   # Follow prompts, choose "HTTPS" and "No" for SSH key, then authenticate via browser.
+   gh auth login
+   ```
+   Finally, download volume snapshots:
+   ```bash
+   mkdir -p ./bundle/volumes
+   gh release download --repo dwellbrock/ohdsi-iris-macos-env --pattern "*.tar" --dir bundle/volumes --clobber
+   ```
 
-4. Restore data & start the stack:
+3. Restore data & start the stack:
+   ```bash
    ./scripts/restore.sh
-
-   If you get a permission error, make the script executable then re-run:
+   If you get a permission error:
    chmod +x scripts/restore.sh
    ./scripts/restore.sh
+   ```
 
 ## URLs
-- IRIS Portal → http://localhost:52773/csp/sys/UtilHome.csp
-- WebAPI Info → http://localhost/webapi/WebAPI/info
-- ATLAS → http://localhost/atlas
-- RStudio → http://localhost:8787
-  - User: ohdsi
-  - Pass: mypass
+- IRIS Portal → http://localhost:52773/csp/sys/UtilHome.csp  
+  - User: `_SYSTEM`  
+  - Pass: `_SYSTEM`
+- WebAPI Info → http://localhost/webapi/WebAPI/info  
+- ATLAS → http://localhost/atlas  
+- RStudio → http://localhost:8787  
+  - User: `ohdsi`  
+  - Pass: `mypass`
 
 ## Notes
-- .env is committed for zero-touch setup; adjust values if needed.
-- Do not commit volume tarballs to the repo—upload them to a GitHub Release.
-- Apple Silicon only: images/services are configured for linux/arm64.
+- `.env` is committed for zero-touch setup; adjust values if needed.
+- `bundle/` is not in the repo — volume tarballs are Release assets.
+- Apple Silicon only: images/services are configured for `linux/arm64`.
 
 ## Troubleshooting
 - View logs for a service:
