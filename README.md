@@ -1,13 +1,27 @@
 # OHDSI IRIS macOS Env (Apple Silicon)
 
-One-click, preconfigured **InterSystems IRIS + OHDSI Broadsea** stack for macOS (M1/M2).  
-Images are pulled from GHCR; database state is restored from volume snapshots.
+Turn-key **InterSystems IRIS + OHDSI Broadsea** environment for macOS (M1/M2)  
+with all databases, RStudio packages, and configuration pre-restored from  
+**saved Docker volumes**.
+
+Instead of setting up Broadsea and IRIS manually, this project:
+
+1. Clones the official [OHDSI/Broadsea](https://github.com/OHDSI/Broadsea) repository.
+2. Applies working `.env`, `docker-compose.yml`, and JDBC drivers for Apple Silicon.
+3. Downloads pre-built **volume snapshots** from this repository’s GitHub Release  
+   ([v2025-08-13](https://github.com/dwellbrock/ohdsi-iris-macos-env/releases/tag/v2025-08-13)).
+4. Restores:
+   - **`dbvolume`** → IRIS database with OMOP CDM, vocabularies, and results.
+   - **`atlasdb-postgres-data`** → WebAPI metadata and source configuration.
+   - **`rstudio-home-data`** / **`rstudio-tmp-data`** → Preinstalled R packages + HADES setup.
+5. Brings up the full Broadsea stack via Docker Compose.
 
 ## What’s included
-- **IRIS** with Eunomia/OMOP CDM + vocab + results (persisted in `dbvolume`)
-- **OHDSI WebAPI & ATLAS** (prebuilt images)
-- **RStudio/HADES** with preinstalled packages for Apple Silicon
-- **Traefik** reverse proxy (HTTP/HTTPS)
+- **InterSystems IRIS** — Preloaded OMOP CDM 5.4 + vocabularies + results schema.
+- **OHDSI WebAPI & ATLAS** — Built from upstream source via Broadsea.
+- **RStudio/HADES** — Apple Silicon compatible, with JDBC driver and packages installed.
+- **Traefik** — Reverse proxy for consistent `http://localhost/...` URLs.
+
 
 ## Prerequisites
 - [Docker Desktop for macOS (Apple Silicon)](https://www.docker.com/products/docker-desktop/)
@@ -38,21 +52,29 @@ All commands below should be run in your macOS Terminal.
    cd ohdsi-iris-macos-env
    ```
 
-2. Restore data & run replica.sh script:
+2. Make the replica script executable and run it:
    ```bash
    chmod +x scripts/replica.sh
    ./scripts/replica.sh
    ```
    
-## URLs
-- IRIS Portal → http://localhost:52773/csp/sys/UtilHome.csp  
-  - User: `_SYSTEM`  
-  - Pass: `_SYSTEM`
-- WebAPI Info → http://localhost/webapi/WebAPI/info  
-- ATLAS → http://localhost/atlas  
-- RStudio → http://localhost:8787  
-  - User: `ohdsi`  
-  - Pass: `mypass`
+   This will:
+   - Clone the official Broadsea repository fresh.
+   - Apply the preconfigured `.env`, `docker-compose.yml`, and JDBC drivers.
+   - Download the four required Docker volume snapshots from  
+      [v2025-08-13 release](https://github.com/dwellbrock/ohdsi-iris-macos-env/releases/tag/v2025-08-13).
+   - Restore the volumes into Docker.
+   - Start the IRIS + Broadsea stack with the correct profiles for Apple Silicon.
+
+3. **Access the services:**
+   - IRIS Portal → http://localhost:52773/csp/sys/UtilHome.csp  
+     - User: `_SYSTEM`  
+     - Pass: `_SYSTEM`
+   - ATLAS → http://localhost/atlas  
+   - WebAPI Info → http://localhost/WebAPI/info  
+   - RStudio → http://localhost/hades  
+     - User: `ohdsi`  
+     - Pass: `mypass`
 
 ## Notes
 - `.env` is committed for zero-touch setup; adjust values if needed.
