@@ -82,12 +82,14 @@ All commands below should be run in your macOS Terminal.
 - Apple Silicon only: images/services are configured for `linux/arm64`.
 
 ## Troubleshooting
-- View logs for a service:
+- **View logs for a service**  
+  ```bash
   docker compose logs -f <service-name>
-
-- Re-run restore (if a volume was created empty):
+  ```
+- **Re-run full restore** (if a volume was created empty or corrupted)  
+  This will re-download volume snapshots from the release and restore them.
+  ```bash
   docker compose down
   docker volume rm dbvolume atlasdb-postgres-data rstudio-home-data rstudio-tmp-data
-  ./scripts/restore.sh
-
-- IRIS permission issues: the restore script runs a chown fix for /durable (uid/gid 51773).
+  ./scripts/replica.sh
+  ```
