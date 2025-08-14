@@ -26,7 +26,7 @@ Instead of setting up Broadsea and IRIS manually, this project:
 ## Prerequisites
 - [Docker Desktop for macOS (Apple Silicon)](https://www.docker.com/products/docker-desktop/)
 - [Homebrew](https://brew.sh/) (package manager for macOS, required for installing `gh`)
-- Git Quick Install & Setup (macOS with Homebrew)
+- **Git Quick Install & Setup (macOS with Homebrew)**
 
   This guide installs Git using [Homebrew](https://brew.sh/) and configures essential global settings so you can start committing right away.
 
@@ -46,13 +46,13 @@ Instead of setting up Broadsea and IRIS manually, this project:
 
 All commands below should be run in your macOS Terminal.
 
-1. Clone the repo and enter it:
+1. **Clone the repo and enter it:**
    ```bash
    git clone https://github.com/dwellbrock/ohdsi-iris-macos-env.git
    cd ohdsi-iris-macos-env
    ```
 
-2. Make the replica script executable and run it:
+2. **Make the replica script executable and run it:**
    ```bash
    chmod +x scripts/replica.sh
    ./scripts/replica.sh
