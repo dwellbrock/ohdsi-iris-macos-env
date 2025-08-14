@@ -12,8 +12,21 @@ Images are pulled from GHCR; database state is restored from volume snapshots.
 ## Prerequisites
 - [Docker Desktop for macOS (Apple Silicon)](https://www.docker.com/products/docker-desktop/)
 - [Homebrew](https://brew.sh/) (package manager for macOS, required for installing `gh`)
-- [GitHub CLI (`gh`)](https://cli.github.com/) for automated release downloads  
-  *(Alternatively, download volume tarballs manually from the [Releases](https://github.com/dwellbrock/ohdsi-iris-macos-env/releases) page)*
+- # Git Quick Install & Setup (macOS with Homebrew)
+
+  This guide installs Git using [Homebrew](https://brew.sh/) and configures essential global settings so you can start committing right away.
+
+  ## Install Git
+  Ensure [Homebrew](https://brew.sh/) is installed on your system, then run:
+
+  ```bash
+  brew install git && \
+  git config --global user.name "Your Name" && \
+  git config --global user.email "you@example.com" && \
+  git config --global init.defaultBranch main && \
+  git config --global color.ui auto && \
+  git config --list
+  ```
 
 ## Quick start
 
@@ -25,36 +38,12 @@ All commands below should be run in your macOS Terminal.
    cd ohdsi-iris-macos-env
    ```
 
-2. Install GitHub CLI (if not already installed) and download volume snapshots:
+2. Restore data & run replica.sh script:
+   ```bash
+   chmod +x scripts/replica.sh
+   ./scripts/replica.sh
+   ```
    
-   Note – This step requires Homebrew. If you don’t already have Homebrew, install it first:
-   ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-   ```
-
-   Then install GitHub CLI:
-   ```bash
-   brew install gh
-   ```
-   First-time only: authenticate GitHub CLI so it can access Releases:
-   ```bash
-   # Follow prompts, choose "HTTPS" and "No" for SSH key, then authenticate via browser.
-   gh auth login
-   ```
-   Finally, download volume snapshots:
-   ```bash
-   mkdir -p ./bundle/volumes
-   gh release download --repo dwellbrock/ohdsi-iris-macos-env --pattern "*.tar" --dir bundle/volumes --clobber
-   ```
-
-3. Restore data & start the stack:
-   ```bash
-   ./scripts/restore.sh
-   If you get a permission error:
-   chmod +x scripts/restore.sh
-   ./scripts/restore.sh
-   ```
-
 ## URLs
 - IRIS Portal → http://localhost:52773/csp/sys/UtilHome.csp  
   - User: `_SYSTEM`  
