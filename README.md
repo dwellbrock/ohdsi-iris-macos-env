@@ -70,9 +70,9 @@ All commands below should be run in your macOS Terminal.
    - IRIS Portal → http://localhost:52773/csp/sys/UtilHome.csp  
      - User: `_SYSTEM`  
      - Pass: `_SYSTEM`
-   - ATLAS → http://localhost/atlas  
-   - WebAPI Info → http://localhost/WebAPI/info  
-   - RStudio → http://localhost/hades  
+   - ATLAS → http://127.0.0.1/atlas  
+   - WebAPI Info → http://127.0.0.1/WebAPI/info  
+   - RStudio → http://127.0.0.1/hades  
      - User: `ohdsi`  
      - Pass: `mypass`
 
