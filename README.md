@@ -26,7 +26,7 @@ Instead of setting up Broadsea and IRIS manually, this project:
 ## Prerequisites
 - [Docker Desktop for macOS (Apple Silicon)](https://www.docker.com/products/docker-desktop/)
 - [Homebrew](https://brew.sh/) (package manager for macOS, required for installing `gh`)
-- # Git Quick Install & Setup (macOS with Homebrew)
+- Git Quick Install & Setup (macOS with Homebrew)
 
   This guide installs Git using [Homebrew](https://brew.sh/) and configures essential global settings so you can start committing right away.
 
