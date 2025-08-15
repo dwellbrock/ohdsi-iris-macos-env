@@ -97,6 +97,55 @@ wait_healthy() {
   done
 }
 
+wait_for_container() {
+  local name="$1" ; local t0=$(date +%s)
+  echo ">>> Waiting for container: $name"
+  while true; do
+    if docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -q true; then
+      break
+    fi
+    sleep 1
+    if [ $(( $(date +%s) - t0 )) -gt 120 ]; then
+      echo "WARN: $name not running after 120s; continuing anyway."
+      break
+    fi
+  done
+}
+
+bootstrap_hades_java() {
+  echo ">>> Bootstrapping Java (rJava) inside broadsea-hades"
+  wait_for_container broadsea-hades
+  # Run everything as root inside the container; idempotent
+  docker exec -u root broadsea-hades bash -lc '
+    set -e
+    NEED_JAVA=0
+    if ! command -v javac >/dev/null 2>&1; then
+      NEED_JAVA=1
+    fi
+
+    if [ "$NEED_JAVA" -eq 1 ]; then
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y default-jdk
+      R CMD javareconf
+    else
+      # Even if Java exists, ensure R is wired to it
+      R CMD javareconf || true
+    fi
+
+    # Persist JAVA_HOME + libjvm path for all sessions
+    touch /etc/R/Renviron.site
+    grep -q "^JAVA_HOME=" /etc/R/Renviron.site || echo "JAVA_HOME=/usr/lib/jvm/default-java" >> /etc/R/Renviron.site
+    grep -q "LD_LIBRARY_PATH=.*lib/server" /etc/R/Renviron.site || echo "LD_LIBRARY_PATH=\${JAVA_HOME}/lib/server:\${LD_LIBRARY_PATH}" >> /etc/R/Renviron.site
+
+    # Quick sanity check: rJava + DatabaseConnector
+    R -q -e "library(rJava); .jinit(); sessionInfo()" >/dev/null 2>&1 || { echo "WARN: rJava sanity check failed"; exit 0; }
+  '
+  # Reload HADES so /etc/R/Renviron.site is picked up in sessions
+  docker restart broadsea-hades >/dev/null 2>&1 || true
+}
+
+
 # ───────────────────────── Preflight ─────────────────────────
 need git; need docker; need curl
 CMD="$(compose_cmd)"
@@ -181,7 +230,9 @@ up1 broadsea-hades || true
 up1 broadsea-content || true
 
 # Bring up remaining selected-profile services
+echo ">>> Starting stack"
 $CMD --env-file .env "${PROFILE_FLAGS[@]}" up -d
+bootstrap_hades_java
 
 echo ""
 echo "Done."
