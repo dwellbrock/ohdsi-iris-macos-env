@@ -90,6 +90,6 @@ All commands below should be run in your macOS Terminal.
   This will re-download volume snapshots from the release and restore them.
   ```bash
   docker compose down
-  docker volume rm dbvolume atlasdb-postgres-data rstudio-home-data rstudio-tmp-data
+  docker volume rm dbvolume atlasdb-postgres-data rstudio-home-data rstudio-tmp-data rstudio-rsite-data
   ./scripts/replica.sh
   ```
