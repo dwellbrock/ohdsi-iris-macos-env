@@ -145,6 +145,19 @@ bootstrap_hades_java() {
   docker restart broadsea-hades >/dev/null 2>&1 || true
 }
 
+bootstrap_hades_jdbc() {
+  echo ">>> Installing IRIS JDBC into broadsea-hades"
+  local JAR="Broadsea/jdbc/intersystems-jdbc-3.10.3.jar"
+  if [ ! -f "$JAR" ]; then
+    echo ">>> JDBC jar not found; downloading"
+    mkdir -p Broadsea/jdbc
+    curl -fsSL -o "$JAR" \
+      https://repo1.maven.org/maven2/com/intersystems/intersystems-jdbc/3.10.3/intersystems-jdbc-3.10.3.jar
+  fi
+  docker exec -u root broadsea-hades bash -lc 'mkdir -p /opt/hades/jdbc_drivers && chown -R rstudio:rstudio /opt/hades'
+  docker cp "$JAR" broadsea-hades:/opt/hades/jdbc_drivers/
+}
+
 
 # ───────────────────────── Preflight ─────────────────────────
 need git; need docker; need curl
@@ -235,6 +248,9 @@ $CMD --env-file .env "${PROFILE_FLAGS[@]}" up -d
 
 echo ">>> Bootstrapping Java (for rJava + DatabaseConnector in broadsea-hades)"
 bootstrap_hades_java
+
+echo ">>> Installing JDBC driver for HADES"
+bootstrap_hades_jdbc
 
 echo ""
 echo "Done."
