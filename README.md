@@ -93,5 +93,6 @@ All commands below should be run in your macOS Terminal.
   cd Broadsea
   docker compose down
   docker volume rm dbvolume atlasdb-postgres-data rstudio-home-data rstudio-tmp-data rstudio-rsite-data
+  chmod +x scripts/replica.sh
   ./scripts/replica.sh
   ```
