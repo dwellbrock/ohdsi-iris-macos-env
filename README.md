@@ -89,6 +89,8 @@ All commands below should be run in your macOS Terminal.
 - **Re-run full restore** (if a volume was created empty or corrupted)  
   This will re-download volume snapshots from the release and restore them.
   ```bash
+  # From within the Broadsea folder
+  cd Broadsea
   docker compose down
   docker volume rm dbvolume atlasdb-postgres-data rstudio-home-data rstudio-tmp-data rstudio-rsite-data
   ./scripts/replica.sh
