@@ -232,6 +232,8 @@ up1 broadsea-content || true
 # Bring up remaining selected-profile services
 echo ">>> Starting stack"
 $CMD --env-file .env "${PROFILE_FLAGS[@]}" up -d
+
+echo ">>> Bootstrapping Java (for rJava + DatabaseConnector in broadsea-hades)"
 bootstrap_hades_java
 
 echo ""
