@@ -148,7 +148,7 @@ restore_volume_from_tar "rstudio-home-data"        "${DOWNLOAD_DIR}/rstudio-home
 restore_volume_from_tar "rstudio-tmp-data"         "${DOWNLOAD_DIR}/rstudio-tmp-data.tar"
 restore_volume_from_tar "rstudio-rsite-data"         "${DOWNLOAD_DIR}/rstudio-rsite-data.tar"
 
-# ───────────────────────── IRIS two-step ─────────────────────────
+# ───────────────────────── IRIS two-step ───────────────────────── 
 echo ">>> Preparing IRIS durable volume permissions"
 docker rm -f "$IRIS_CONTAINER" >/dev/null 2>&1 || true
 docker pull "$IRIS_IMAGE" >/dev/null
