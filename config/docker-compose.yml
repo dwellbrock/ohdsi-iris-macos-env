@@ -11,6 +11,8 @@ volumes:
   rstudio-tmp-data:
     name: rstudio-tmp-data
     external: true
+  rstudio-rsite-data:
+    name: rstudio-rsite-data
   openldap-data:
     name: openldap-data
   jdbc-drivers-data:
@@ -79,6 +81,7 @@ services:
     volumes:
       - rstudio-home-data:/home
       - rstudio-tmp-data:/tmp
+      - rstudio-rsite-data:/usr/local/lib/R/site-library
       - ./hades/00_set_secrets:/etc/cont-init.d/00_set_secrets
     labels:
       - "traefik.enable=true"
