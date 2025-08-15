@@ -30,7 +30,7 @@ SHAS=( \
   "e71652ea8d1249ab2b8652456176e46c8fa85c67d259d88e1feb7dc3a0a8225a" \
   "5e27fea6eb62d159fac70fb1696f98fde8d2a78c0bfc7c34799625a9173288c1" \
   "6331fc108e1014ce8eea3433a1e937a0775c6b5042f9dac1c97ad0ae37ad9135" \
-  "e16a659ba99a10eb796794aaadaed1c1688b9a1bd7b7df1a275530b80ed06b56" \
+  "a2e9b048972075ce93f86ff9a64ea5df3c8a00beae02bc17be0e1347386f3162" \
 )
 
 # ───────────────────────── Helpers ─────────────────────────
