@@ -4,6 +4,7 @@ set -euo pipefail
 # ───────────────────────── Repo/Release (fixed to your tag) ─────────────────────────
 REPO_OWNER="dwellbrock"
 REPO_NAME="ohdsi-iris-macos-env"
+REPO_ROOT="$(pwd)"
 VOLS_RELEASE_TAG="v2025-08-13"
 
 # ───────────────────────── Local layout ─────────────────────────
@@ -147,16 +148,41 @@ bootstrap_hades_java() {
 
 bootstrap_hades_jdbc() {
   echo ">>> Installing IRIS JDBC into broadsea-hades"
-  local JAR="Broadsea/jdbc/intersystems-jdbc-3.10.3.jar"
-  if [ ! -f "$JAR" ]; then
-    echo ">>> JDBC jar not found; downloading"
-    mkdir -p Broadsea/jdbc
+
+  # Try common locations for the jar
+  local CANDIDATES=(
+    "./jdbc/intersystems-jdbc-3.10.3.jar"
+    "$REPO_ROOT/config/jdbc/intersystems-jdbc-3.10.3.jar"
+    "$REPO_ROOT/Broadsea/jdbc/intersystems-jdbc-3.10.3.jar"
+  )
+  local JAR=""
+  for p in "${CANDIDATES[@]}"; do
+    if [ -f "$p" ]; then JAR="$p"; break; fi
+  done
+
+  # Download to current Broadsea/jdbc if not present
+  if [ -z "$JAR" ]; then
+    echo ">>> JDBC jar not found locally; downloading to ./jdbc/"
+    mkdir -p ./jdbc
+    JAR="./jdbc/intersystems-jdbc-3.10.3.jar"
     curl -fsSL -o "$JAR" \
       https://repo1.maven.org/maven2/com/intersystems/intersystems-jdbc/3.10.3/intersystems-jdbc-3.10.3.jar
   fi
-  docker exec -u root broadsea-hades bash -lc 'mkdir -p /opt/hades/jdbc_drivers && chown -R rstudio:rstudio /opt/hades'
+
+  # Create destination dir and copy jar
+  docker exec -u root broadsea-hades bash -lc 'mkdir -p /opt/hades/jdbc_drivers'
   docker cp "$JAR" broadsea-hades:/opt/hades/jdbc_drivers/
+
+  # Chown only if the user exists; otherwise leave as root
+  docker exec -u root broadsea-hades bash -lc '
+    if id -u rstudio >/dev/null 2>&1; then
+      chown -R rstudio:$(id -gn rstudio) /opt/hades || true
+    else
+      echo "NOTE: user \"rstudio\" not found in image; leaving ownership as-is"
+    fi
+  '
 }
+
 
 
 # ───────────────────────── Preflight ─────────────────────────
