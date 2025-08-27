@@ -201,28 +201,133 @@ bootstrap_hades_jdbc() {
 }
 
 bootstrap_hades_scripts() {
-  echo ">>> Installing Achilles script into broadsea-hades"
+  echo ">>> Installing initialize_results_iris.R (home is canonical: ~/scripts/hades; /opt is symlink)"
 
-  local SRC="${CONFIG_DIR}/hades/run_achilles_iris.R"
+  local SRC="${CONFIG_DIR}/hades/initialize_results_iris.R"
   if [ ! -f "$SRC" ]; then
     echo "ERROR: Script not found at ${SRC}"
     exit 1
   fi
 
-  docker exec -u root broadsea-hades bash -lc 'mkdir -p /opt/hades/scripts'
-  docker cp "$SRC" broadsea-hades:/opt/hades/scripts/run_achilles_iris.R
+  wait_for_container broadsea-hades
+  docker cp "$SRC" broadsea-hades:/tmp/initialize_results_iris.R.new
 
   docker exec -u root broadsea-hades bash -lc '
-    if id -u rstudio >/dev/null 2>&1; then
-      chown -R rstudio:$(id -gn rstudio) /opt/hades/scripts
-    fi
-    chmod 0644 /opt/hades/scripts/run_achilles_iris.R
-    ln -sf /opt/hades/scripts/run_achilles_iris.R /home/rstudio/run_achilles_iris.R || true
+    set -euo pipefail
+
+    pick_user() {
+      local u
+      if [ -n "${HADES_USER:-}" ] && id -u "$HADES_USER" >/dev/null 2>&1; then echo "$HADES_USER"; return; fi
+      for u in rstudio ohdsi; do
+        if id -u "$u" >/dev/null 2>&1; then echo "$u"; return; fi
+      done
+      getent passwd | awk -F: '"'"'$3>=1000{print $1; exit}'"'"'
+    }
+
+    RS_USER="$(pick_user)"
+    [ -n "$RS_USER" ] || { echo "ERROR: Could not detect UI login user."; exit 1; }
+    RS_HOME="$(getent passwd "$RS_USER" | awk -F: '"'"'{print $6}'"'"')"
+    [ -n "$RS_HOME" ] || { echo "ERROR: Could not resolve home for $RS_USER."; exit 1; }
+    RS_GROUP="$(id -gn "$RS_USER" 2>/dev/null || echo "$RS_USER")"
+
+    DEST_DIR="$RS_HOME/scripts/hades"
+    mkdir -p "$DEST_DIR" /opt/hades/scripts
+
+    tgt="$DEST_DIR/initialize_results_iris.R"
+    mv -f /tmp/initialize_results_iris.R.new "$tgt"
+    chown "$RS_USER:$RS_GROUP" "$tgt" || true
+    chmod 0644 "$tgt" || true
+
+    rm -f /opt/hades/scripts/initialize_results_iris.R
+    ln -s "$tgt" /opt/hades/scripts/initialize_results_iris.R
+    chown -h "$RS_USER:$RS_GROUP" /opt/hades/scripts/initialize_results_iris.R || true
+
+    echo ">>> Script installed to: $tgt"
+    ls -l "$tgt"
+    echo ">>> /opt shortcut:"
+    ls -l /opt/hades/scripts/initialize_results_iris.R
   '
 
-  echo ">>> Script available at:"
-  echo "    - /opt/hades/scripts/run_achilles_iris.R"
-  echo "    - /home/rstudio/run_achilles_iris.R (symlink)"
+  echo ">>> Edit in RStudio:   ~/scripts/hades/initialize_results_iris.R"
+  echo ">>> CLI shortcut:      /opt/hades/scripts/initialize_results_iris.R"
+}
+
+# Copy any single R script by filename from config/hades/ → ~/scripts/hades/ and symlink under /opt/hades/scripts/
+bootstrap_copy_script() {
+  local FILENAME="$1"   # e.g., wipe_omop_iris.R
+  local SRC="${CONFIG_DIR}/hades/${FILENAME}"
+
+  echo ">>> Installing ${FILENAME} (home is canonical: ~/scripts/hades; /opt is symlink)"
+  if [ ! -f "$SRC" ]; then
+    echo "WARN: ${SRC} not found — skipping."
+    return 0
+  fi
+
+  wait_for_container broadsea-hades
+  docker cp "$SRC" broadsea-hades:/tmp/"${FILENAME}".new
+
+  docker exec -u root broadsea-hades bash -lc '
+    set -euo pipefail
+
+    pick_user() {
+      local u
+      if [ -n "${HADES_USER:-}" ] && id -u "$HADES_USER" >/dev/null 2>&1; then echo "$HADES_USER"; return; fi
+      for u in rstudio ohdsi; do if id -u "$u" >/dev/null 2>&1; then echo "$u"; return; fi; done
+      getent passwd | awk -F: '"'"'$3>=1000{print $1; exit}'"'"'
+    }
+
+    RS_USER="$(pick_user)"
+    RS_HOME="$(getent passwd "$RS_USER" | awk -F: '"'"'{print $6}'"'"')"
+    RS_GROUP="$(id -gn "$RS_USER" 2>/dev/null || echo "$RS_USER")"
+
+    DEST_DIR="$RS_HOME/scripts/hades"
+    mkdir -p "$DEST_DIR" /opt/hades/scripts
+
+    tgt="$DEST_DIR/'"$FILENAME"'"
+    mv -f /tmp/'"$FILENAME"'.new "$tgt"
+    chown "$RS_USER:$RS_GROUP" "$tgt" || true
+    chmod 0644 "$tgt" || true
+
+    rm -f /opt/hades/scripts/'"$FILENAME"'
+    ln -s "$tgt" /opt/hades/scripts/'"$FILENAME"'
+    chown -h "$RS_USER:$RS_GROUP" /opt/hades/scripts/'"$FILENAME"' || true
+
+    ls -l "$tgt"
+    ls -l /opt/hades/scripts/'"$FILENAME"'
+  '
+}
+
+fix_rstudio_home_permissions() {
+  echo ">>> Ensuring detected RStudio home is writable by the login user"
+  wait_for_container broadsea-hades
+  docker exec -u root broadsea-hades bash -lc '
+    set -euo pipefail
+
+    pick_user() {
+      local u
+      if [ -n "${HADES_USER:-}" ] && id -u "$HADES_USER" >/dev/null 2>&1; then
+        echo "$HADES_USER"; return
+      fi
+      for u in rstudio ohdsi; do
+        if id -u "$u" >/dev/null 2>&1; then echo "$u"; return; fi
+      done
+      getent passwd | awk -F: '"'"'$3>=1000{print $1; exit}'"'"'
+    }
+
+    RS_USER="$(pick_user)"
+    if [ -z "$RS_USER" ]; then
+      echo "ERROR: Could not detect RStudio user for permission fix."
+      exit 1
+    fi
+    RS_HOME="$(getent passwd "$RS_USER" | awk -F: '"'"'{print $6}'"'"')"
+    RS_GROUP="$(id -gn "$RS_USER" 2>/dev/null || echo "$RS_USER")"
+
+    echo ">>> Detected user: $RS_USER (home: $RS_HOME, group: $RS_GROUP)"
+    mkdir -p "$RS_HOME"
+    chown -R "$RS_USER:$RS_GROUP" "$RS_HOME"
+    find "$RS_HOME" -type d -exec chmod u+rwx,go+rx {} +
+    find "$RS_HOME" -type f -exec chmod u+rw,go+r {} +
+  '
 }
 
 # ───────────────────────── Preflight ─────────────────────────
@@ -339,8 +444,14 @@ bootstrap_hades_java
 echo ">>> Installing JDBC driver for HADES"
 bootstrap_hades_jdbc
 
-echo ">>> Installing Achilles R script for HADES"
+echo ">>> Installing initialize_results_iris.R script for HADES"
 bootstrap_hades_scripts
+
+echo ">>> Installing Wipe (Nuke & Pave) R script for HADES"
+bootstrap_copy_script "wipe_omop_iris.R"
+
+echo ">>> Fixing /home/rstudio permissions"
+fix_rstudio_home_permissions
 
 echo ""
 echo "Done."

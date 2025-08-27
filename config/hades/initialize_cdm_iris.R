@@ -294,8 +294,21 @@ if (!forceAchilles && (existingAR > 0 || existingARD > 0)) {
   message("Skipping Achilles SQL regeneration (RESULTS already present). Set forceAchilles <- TRUE to rebuild.")
 } else {
   message("Generating Achilles SQL (sqlOnly=TRUE) → SCRATCH=", scratchSchema)
+
+  # -- IMPORTANT: Achilles checks pathToDriver even in sqlOnly mode.
+  # Provide a 'dummy' connectionDetails with a non-empty pathToDriver.
+  # It will NOT connect because sqlOnly=TRUE.
+  Sys.setenv(DATABASECONNECTOR_JAR_FOLDER = jdbcDriverFolder)  # extra safety
+  dummyDetails <- DatabaseConnector::createConnectionDetails(
+    dbms         = "sql server",
+    server       = "localhost",   # arbitrary; not used
+    user         = "dummy",       # arbitrary; not used
+    password     = "dummy",       # arbitrary; not used
+    pathToDriver = jdbcDriverFolder
+  )
+
   ach_args <- list(
-    connectionDetails        = DatabaseConnector::createConnectionDetails(dbms="sql server", server="ignored"),
+    connectionDetails        = dummyDetails,
     cdmDatabaseSchema        = cdmSchema,
     resultsDatabaseSchema    = resultsSchema,
     vocabDatabaseSchema      = cdmSchema,
@@ -312,34 +325,32 @@ if (!forceAchilles && (existingAR > 0 || existingARD > 0)) {
     verboseMode              = TRUE,
     excludeAnalysisIds       = excludeAnalyses
   )
+
   supported <- try(names(formals(Achilles::achilles)), silent = TRUE)
   if (!inherits(supported, "try-error")) ach_args <- ach_args[names(ach_args) %in% supported]
 
+  # clean out any prior SQL files then (re)generate
   unlink(list.files(achillesOutputDir, pattern="\\.sql$", full.names=TRUE), recursive=TRUE, force=TRUE)
   invisible(do.call(Achilles::achilles, ach_args))
 
+  # Execute generated SQL (strip index & schema DDL for IRIS)
+   # Execute generated SQL (strip index & schema DDL for IRIS)
   patch_ddl <- function(txt) {
-    txt <- gsub("(?im)^\\s*drop\\s+index\\b[^;]*;\\s*",               "", txt, perl=TRUE)
-    txt <- gsub("(?im)^\\s*create\\s+(unique\\s+)?index\\b[^;]*;\\s*","", txt, perl=TRUE)
-    txt <- gsub("(?im)^\\s*alter\\s+index\\b[^;]*;\\s*",              "", txt, perl=TRUE)
-    txt <- gsub("(?im)^\\s*create\\s+schema\\b[^;]*;\\s*",            "", txt, perl=TRUE)
-    txt <- gsub("(?im)^\\s*drop\\s+schema\\b[^;]*;\\s*",              "", txt, perl=TRUE)
+    # strip DDL that IRIS doesn't want
+    txt <- gsub("(?im)^\\s*drop\\s+index\\b[^;]*;\\s*",                "", txt, perl=TRUE)
+    txt <- gsub("(?im)^\\s*create\\s+(unique\\s+)?index\\b[^;]*;\\s*", "", txt, perl=TRUE)
+    txt <- gsub("(?im)^\\s*alter\\s+index\\b[^;]*;\\s*",               "", txt, perl=TRUE)
+    txt <- gsub("(?im)^\\s*create\\s+schema\\b[^;]*;\\s*",             "", txt, perl=TRUE)
+    txt <- gsub("(?im)^\\s*drop\\s+schema\\b[^;]*;\\s*",               "", txt, perl=TRUE)
+
+    # --- T-SQL -> IRIS shims ---
+    txt <- gsub("(?i)\\bcount_big\\s*\\(", "COUNT(", txt, perl=TRUE)
+    txt <- gsub("(?i)\\bisnull\\s*\\(",   "COALESCE(", txt, perl=TRUE)
+    txt <- gsub("(?i)\\bnvarchar\\b",     "VARCHAR",  txt, perl=TRUE)
+    txt <- gsub("(?m)^\\s*GO\\s*$",       "",         txt, perl=TRUE)
     txt
   }
-  sql_files <- list.files(achillesOutputDir, pattern="\\.sql$", full.names=TRUE, recursive=TRUE)
-  message("Executing ", length(sql_files), " SQL file(s)…")
-  for (f in sql_files) {
-    cat(sprintf("  - %s … ", basename(f)))
-    ok <- TRUE
-    tryCatch({
-      txt <- readChar(f, file.info(f)$size, useBytes=TRUE)
-      txt <- gsub("\r\n","\n",txt,fixed=TRUE)
-      txt <- patch_ddl(txt)
-      DatabaseConnector::executeSql(conn, txt)
-    }, error=function(e){ ok<<-FALSE; message("\n      -> ", conditionMessage(e)) })
-    if (ok) cat("ok\n")
-  }
-}
+} 
 
 # ========= Stage 4: Populate ACHILLES_RESULT_CONCEPT from ALL strata =========
 message("Populating ", resultsSchema, ".ACHILLES_RESULT_CONCEPT from RESULTS …")

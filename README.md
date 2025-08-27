@@ -56,8 +56,8 @@ All commands below should be run in your macOS Terminal.
    - Restore the volumes into Docker.
    - Start the IRIS + Broadsea stack with the correct profiles for Apple Silicon.
    - Install the Achilles runner at:
-     - `/opt/hades/scripts/run_achilles_iris.R`
-     - Symlink: `/home/rstudio/run_achilles_iris.R`
+     - `/home/rstudio/initialize_results_iris.R`
+     - Symlink: `/opt/hades/scripts/initialize_results_iris.R`
 
 3. **Access the services:**
    - IRIS Portal → <http://localhost:52773/csp/sys/UtilHome.csp>  
@@ -84,15 +84,15 @@ All commands below should be run in your macOS Terminal.
 
    ```r
    # Either path works (symlink points to the same file):
-   source("/home/rstudio/run_achilles_iris.R")
+   source("~/scripts/hades/initialize_results_iris.R")
    # or
-   source("/opt/hades/scripts/run_achilles_iris.R")
+   source("/opt/hades/scripts/initialize_results_iris.R")
    ```
 
    ### B) With parameters (override defaults)
    ```r
    sys.source(
-     "/home/rstudio/run_achilles_iris.R",
+     "~/scripts/hades/initialize_results_iris.R",
      envir = list2env(list(
        # IRIS connection
        irisConnStr      = "jdbc:IRIS://host.docker.internal:1972/USER",
