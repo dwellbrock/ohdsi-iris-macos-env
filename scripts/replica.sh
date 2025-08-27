@@ -183,6 +183,37 @@ bootstrap_hades_jdbc() {
   '
 }
 
+bootstrap_hades_scripts() {
+  echo ">>> Installing Achilles script into broadsea-hades"
+
+  # This script should live in your repo:
+  #   config/hades/run_achilles_iris.R
+  local SRC="${CONFIG_DIR}/hades/run_achilles_iris.R"
+  if [ ! -f "$SRC" ]; then
+    echo "ERROR: Script not found at ${SRC}"
+    exit 1
+  fi
+
+  # Ensure target dir inside the container
+  docker exec -u root broadsea-hades bash -lc 'mkdir -p /opt/hades/scripts'
+
+  # Copy (overwrite to refresh)
+  docker cp "$SRC" broadsea-hades:/opt/hades/scripts/run_achilles_iris.R
+
+  # Permissions & a convenient symlink for the rstudio user
+  docker exec -u root broadsea-hades bash -lc '
+    if id -u rstudio >/dev/null 2>&1; then
+      chown -R rstudio:$(id -gn rstudio) /opt/hades/scripts
+    fi
+    chmod 0644 /opt/hades/scripts/run_achilles_iris.R
+    ln -sf /opt/hades/scripts/run_achilles_iris.R /home/rstudio/run_achilles_iris.R || true
+  '
+
+  echo ">>> Script available at:"
+  echo "    - /opt/hades/scripts/run_achilles_iris.R"
+  echo "    - /home/rstudio/run_achilles_iris.R (symlink)"
+}
+
 
 
 # ───────────────────────── Preflight ─────────────────────────
@@ -277,6 +308,9 @@ bootstrap_hades_java
 
 echo ">>> Installing JDBC driver for HADES"
 bootstrap_hades_jdbc
+
+echo ">>> Installing Achilles R script for HADES"
+bootstrap_hades_scripts
 
 echo ""
 echo "Done."
