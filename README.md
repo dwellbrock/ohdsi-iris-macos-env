@@ -15,7 +15,7 @@ Instead of setting up Broadsea and IRIS manually, this project:
 5. Brings up the full Broadsea stack via Docker Compose.
 
 ## What’s included
-- **InterSystems IRIS** — Preloaded OMOP CDM 5.4 + vocabularies + results schema.
+- **InterSystems IRIS** — Preloaded CDM schema (OMOPCDM53 → CDM v5.3) and RESULTS schema (OMOPCDM55_RESULTS, WebAPI-compatible).
 - **OHDSI WebAPI & ATLAS** — Built from upstream source via Broadsea.
 - **RStudio/HADES** — Apple Silicon compatible, with JDBC driver and packages installed.
 - **Traefik** — Reverse proxy for consistent `http://localhost/...` URLs.
@@ -55,7 +55,7 @@ All commands below should be run in your macOS Terminal.
    - Download the required Docker volume snapshots from the release.
    - Restore the volumes into Docker.
    - Start the IRIS + Broadsea stack with the correct profiles for Apple Silicon.
-   - Install the Achilles runner at:
+   - Install the Results initializer script at:
      - `/home/rstudio/initialize_results_iris.R`
      - Symlink: `/opt/hades/scripts/initialize_results_iris.R`
 
@@ -80,7 +80,7 @@ All commands below should be run in your macOS Terminal.
    - Skips Achilles SQL regeneration if RESULTS already exist
    - Populates `ACHILLES_RESULT_CONCEPT` and a WebAPI-shaped `CONCEPT_HIERARCHY`
    - Adds small IRIS-safe indexes
-   - Optionally clears WebAPI caches (if enabled in script)
+   - Always clears WebAPI caches (silently skipped if WebAPI database isn’t reachable).
 
    ```r
    # Either path works (symlink points to the same file):
@@ -113,8 +113,6 @@ All commands below should be run in your macOS Terminal.
        smallCellCount   = 5L,
        forceAchilles    = FALSE,
 
-       # Optional: WebAPI cache-bust (Postgres)
-       cacheBust        = FALSE,
        atlasSourceId    = 2L,
        pgHost           = "broadsea-atlasdb",
        pgPort           = 5432L,
