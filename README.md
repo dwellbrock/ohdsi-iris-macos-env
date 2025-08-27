@@ -1,8 +1,6 @@
 # OHDSI IRIS macOS Env (Apple Silicon)
 
-Turn-key **InterSystems IRIS + OHDSI Broadsea** environment for macOS (M1/M2)  
-with all databases, RStudio packages, and configuration pre-restored from  
-**saved Docker volumes**.
+Turn-key **InterSystems IRIS + OHDSI Broadsea** environment for macOS (M1/M2) with all databases, RStudio packages, and configuration pre-restored from **saved Docker volumes**.
 
 Instead of setting up Broadsea and IRIS manually, this project:
 
@@ -22,25 +20,14 @@ Instead of setting up Broadsea and IRIS manually, this project:
 - **RStudio/HADES** — Apple Silicon compatible, with JDBC driver and packages installed.
 - **Traefik** — Reverse proxy for consistent `http://localhost/...` URLs.
 
-
 ## Prerequisites
 - [Docker Desktop for macOS (Apple Silicon)](https://www.docker.com/products/docker-desktop/)
-- [Homebrew](https://brew.sh/) (package manager for macOS, required for installing `gh`)
-- **Git Quick Install & Setup (macOS with Homebrew)**
+- [Homebrew](https://brew.sh/)
 
-  This guide installs Git using [Homebrew](https://brew.sh/) and configures essential global settings so you can start committing right away.
-
-  ## Install Git
-  Ensure [Homebrew](https://brew.sh/) is installed on your system, then run:
-
-  ```bash
-  brew install git && \
-  git config --global user.name "Your Name" && \
-  git config --global user.email "you@example.com" && \
-  git config --global init.defaultBranch main && \
-  git config --global color.ui auto && \
-  git config --list
-  ```
+### Install Git (via Homebrew)
+```bash
+brew install git && git config --global user.name "Your Name" && git config --global user.email "you@example.com" && git config --global init.defaultBranch main && git config --global color.ui auto && git config --list
+```
 
 ## Quick start
 
@@ -57,42 +44,110 @@ All commands below should be run in your macOS Terminal.
    chmod +x scripts/replica.sh
    ./scripts/replica.sh
    ```
-   
+   - To **force fresh downloads** of the prebuilt volume tarballs (handy if you hit a `curl 416` or suspect a stale/corrupt cache):
+     ```bash
+     ./scripts/replica.sh --fresh
+     ```
+
    This will:
    - Clone the official Broadsea repository fresh.
    - Apply the preconfigured `.env`, `docker-compose.yml`, and JDBC drivers.
-   - Download the four required Docker volume snapshots from  
-      [v2025-08-13 release](https://github.com/dwellbrock/ohdsi-iris-macos-env/releases/tag/v2025-08-13).
+   - Download the required Docker volume snapshots from the release.
    - Restore the volumes into Docker.
    - Start the IRIS + Broadsea stack with the correct profiles for Apple Silicon.
+   - Install the Achilles runner at:
+     - `/opt/hades/scripts/run_achilles_iris.R`
+     - Symlink: `/home/rstudio/run_achilles_iris.R`
 
 3. **Access the services:**
-   - IRIS Portal → http://localhost:52773/csp/sys/UtilHome.csp  
+   - IRIS Portal → <http://localhost:52773/csp/sys/UtilHome.csp>  
      - User: `_SYSTEM`  
      - Pass: `_SYSTEM`
-   - ATLAS → http://127.0.0.1/atlas  
-   - WebAPI Info → http://127.0.0.1/WebAPI/info  
-   - RStudio → http://127.0.0.1/hades  
+   - ATLAS → <http://127.0.0.1/atlas>  
+   - WebAPI Info → <http://127.0.0.1/WebAPI/info>  
+   - RStudio → <http://127.0.0.1/hades>  
      - User: `ohdsi`  
      - Pass: `mypass`
+
+4. **(From RStudio) Run Achilles on IRIS**
+
+   Open **RStudio** at `http://127.0.0.1/hades`, then run **one** of:
+
+   ### A) Default mode (no params)
+   Uses defaults (IRIS at `host.docker.internal:1972/USER`, CDM `OMOPCDM53`, RESULTS `OMOPCDM55_RESULTS`, SCRATCH `OMOPCDM55_SCRATCH`). It:
+   - Ensures the IRIS connection
+   - Ensures core RESULTS tables
+   - Skips Achilles SQL regeneration if RESULTS already exist
+   - Populates `ACHILLES_RESULT_CONCEPT` and a WebAPI-shaped `CONCEPT_HIERARCHY`
+   - Adds small IRIS-safe indexes
+   - Optionally clears WebAPI caches (if enabled in script)
+
+   ```r
+   # Either path works (symlink points to the same file):
+   source("/home/rstudio/run_achilles_iris.R")
+   # or
+   source("/opt/hades/scripts/run_achilles_iris.R")
+   ```
+
+   ### B) With parameters (override defaults)
+   ```r
+   sys.source(
+     "/home/rstudio/run_achilles_iris.R",
+     envir = list2env(list(
+       # IRIS connection
+       irisConnStr      = "jdbc:IRIS://host.docker.internal:1972/USER",
+       irisUser         = "_SYSTEM",
+       irisPassword     = "_SYSTEM",
+       jdbcDriverFolder = "/opt/hades/jdbc_drivers",
+
+       # Schemas and labels
+       cdmSchema        = "OMOPCDM53",
+       resultsSchema    = "OMOPCDM55_RESULTS",
+       scratchSchema    = "OMOPCDM55_SCRATCH",
+       sourceName       = "Client CDM on IRIS",
+
+       # Achilles controls
+       cdmVersion       = "5.3",
+       excludeAnalyses  = c(802),
+       numThreads       = 1L,
+       smallCellCount   = 5L,
+       forceAchilles    = FALSE,
+
+       # Optional: WebAPI cache-bust (Postgres)
+       cacheBust        = FALSE,
+       atlasSourceId    = 2L,
+       pgHost           = "broadsea-atlasdb",
+       pgPort           = 5432L,
+       pgDatabase       = "postgres",
+       pgUser           = "postgres",
+       pgPassword       = "mypass"
+     ))
+   )
+   ```
 
 ## Notes
 - `.env` is committed for zero-touch setup; adjust values if needed.
 - `bundle/` is not in the repo — volume tarballs are Release assets.
 - Apple Silicon only: images/services are configured for `linux/arm64`.
+- The IRIS JDBC driver is automatically placed in `/opt/hades/jdbc_drivers` inside the HADES container.
 
-## Troubleshooting
-- **View logs for a service**  
+## Troubleshooting (run from repo root: `ohdsi-iris-macos-env`)
+- **View logs for a service**
   ```bash
-  docker compose logs -f <service-name>
+  docker compose -f Broadsea/docker-compose.yml --env-file Broadsea/.env logs -f <service-name>
   ```
-- **Re-run full restore** (if a volume was created empty or corrupted)  
-  This will re-download volume snapshots from the release and restore them.
+- **Force fresh volume downloads (fixes `curl 416` or stale cache)**
   ```bash
-  # From within the Broadsea folder
-  cd Broadsea
-  docker compose down
+  ./scripts/replica.sh --fresh
+  ```
+- **Re-run full restore** (tear down containers, remove volumes, fresh rebuild)
+  ```bash
+  # Stop and remove the stack (uses the compose files inside Broadsea/)
+  docker compose -f Broadsea/docker-compose.yml --env-file Broadsea/.env down
+
+  # Remove the data volumes
   docker volume rm dbvolume atlasdb-postgres-data rstudio-home-data rstudio-tmp-data rstudio-rsite-data
-  chmod +x scripts/replica.sh
-  ./scripts/replica.sh
+
+  # Rebuild everything with fresh volume downloads
+  ./scripts/replica.sh --fresh
   ```

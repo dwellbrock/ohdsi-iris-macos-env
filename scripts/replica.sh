@@ -34,6 +34,12 @@ SHAS=( \
   "a2e9b048972075ce93f86ff9a64ea5df3c8a00beae02bc17be0e1347386f3162" \
 )
 
+# ───────────────────────── Flags ─────────────────────────
+FRESH=0
+for arg in "$@"; do
+  [[ "$arg" == "--fresh" ]] && FRESH=1
+done
+
 # ───────────────────────── Helpers ─────────────────────────
 need() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: '$1' not found"; exit 1; }; }
 compose_cmd() { command -v docker-compose >/dev/null 2>&1 && echo "docker-compose" || echo "docker compose"; }
@@ -42,6 +48,7 @@ dl() { # resumable curl download
   local url="$1" out="$2"
   mkdir -p "$(dirname "$out")"
   echo ">>> Downloading: $url"
+  # Try resume; if that fails (e.g., 416) we'll retry fresh in the caller
   curl -fL --retry 3 --retry-delay 2 -C - -o "$out" "$url"
 }
 
@@ -59,6 +66,24 @@ verify_sha256() {
   else
     echo "WARN: no shasum/sha256sum; skipping verification"
   fi
+}
+
+# Non-exiting check for cached files
+valid_sha256() {
+  local file="$1" expected="$2"
+  if command -v shasum >/dev/null 2>&1; then
+    local got
+    got="$(shasum -a 256 "$file" | awk '{print $1}')"
+    [[ "$got" == "$expected" ]]
+    return
+  elif command -v sha256sum >/dev/null 2>&1; then
+    local got
+    got="$(sha256sum "$file" | awk '{print $1}')"
+    [[ "$got" == "$expected" ]]
+    return
+  fi
+  # If no tool is available, treat as not valid to force a fresh verify later.
+  return 1
 }
 
 restore_volume_from_tar() {
@@ -99,7 +124,8 @@ wait_healthy() {
 }
 
 wait_for_container() {
-  local name="$1" ; local t0=$(date +%s)
+  local name="$1" ; local t0
+  t0=$(date +%s)
   echo ">>> Waiting for container: $name"
   while true; do
     if docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -q true; then
@@ -116,7 +142,6 @@ wait_for_container() {
 bootstrap_hades_java() {
   echo ">>> Bootstrapping Java (rJava) inside broadsea-hades"
   wait_for_container broadsea-hades
-  # Run everything as root inside the container; idempotent
   docker exec -u root broadsea-hades bash -lc '
     set -e
     NEED_JAVA=0
@@ -130,26 +155,21 @@ bootstrap_hades_java() {
       apt-get install -y default-jdk
       R CMD javareconf
     else
-      # Even if Java exists, ensure R is wired to it
       R CMD javareconf || true
     fi
 
-    # Persist JAVA_HOME + libjvm path for all sessions
     touch /etc/R/Renviron.site
     grep -q "^JAVA_HOME=" /etc/R/Renviron.site || echo "JAVA_HOME=/usr/lib/jvm/default-java" >> /etc/R/Renviron.site
     grep -q "LD_LIBRARY_PATH=.*lib/server" /etc/R/Renviron.site || echo "LD_LIBRARY_PATH=\${JAVA_HOME}/lib/server:\${LD_LIBRARY_PATH}" >> /etc/R/Renviron.site
 
-    # Quick sanity check: rJava + DatabaseConnector
     R -q -e "library(rJava); .jinit(); sessionInfo()" >/dev/null 2>&1 || { echo "WARN: rJava sanity check failed"; exit 0; }
   '
-  # Reload HADES so /etc/R/Renviron.site is picked up in sessions
   docker restart broadsea-hades >/dev/null 2>&1 || true
 }
 
 bootstrap_hades_jdbc() {
   echo ">>> Installing IRIS JDBC into broadsea-hades"
 
-  # Try common locations for the jar
   local CANDIDATES=(
     "./jdbc/intersystems-jdbc-3.10.3.jar"
     "$REPO_ROOT/config/jdbc/intersystems-jdbc-3.10.3.jar"
@@ -160,7 +180,6 @@ bootstrap_hades_jdbc() {
     if [ -f "$p" ]; then JAR="$p"; break; fi
   done
 
-  # Download to current Broadsea/jdbc if not present
   if [ -z "$JAR" ]; then
     echo ">>> JDBC jar not found locally; downloading to ./jdbc/"
     mkdir -p ./jdbc
@@ -169,11 +188,9 @@ bootstrap_hades_jdbc() {
       https://repo1.maven.org/maven2/com/intersystems/intersystems-jdbc/3.10.3/intersystems-jdbc-3.10.3.jar
   fi
 
-  # Create destination dir and copy jar
   docker exec -u root broadsea-hades bash -lc 'mkdir -p /opt/hades/jdbc_drivers'
   docker cp "$JAR" broadsea-hades:/opt/hades/jdbc_drivers/
 
-  # Chown only if the user exists; otherwise leave as root
   docker exec -u root broadsea-hades bash -lc '
     if id -u rstudio >/dev/null 2>&1; then
       chown -R rstudio:$(id -gn rstudio) /opt/hades || true
@@ -186,21 +203,15 @@ bootstrap_hades_jdbc() {
 bootstrap_hades_scripts() {
   echo ">>> Installing Achilles script into broadsea-hades"
 
-  # This script should live in your repo:
-  #   config/hades/run_achilles_iris.R
   local SRC="${CONFIG_DIR}/hades/run_achilles_iris.R"
   if [ ! -f "$SRC" ]; then
     echo "ERROR: Script not found at ${SRC}"
     exit 1
   fi
 
-  # Ensure target dir inside the container
   docker exec -u root broadsea-hades bash -lc 'mkdir -p /opt/hades/scripts'
-
-  # Copy (overwrite to refresh)
   docker cp "$SRC" broadsea-hades:/opt/hades/scripts/run_achilles_iris.R
 
-  # Permissions & a convenient symlink for the rstudio user
   docker exec -u root broadsea-hades bash -lc '
     if id -u rstudio >/dev/null 2>&1; then
       chown -R rstudio:$(id -gn rstudio) /opt/hades/scripts
@@ -214,21 +225,40 @@ bootstrap_hades_scripts() {
   echo "    - /home/rstudio/run_achilles_iris.R (symlink)"
 }
 
-
-
 # ───────────────────────── Preflight ─────────────────────────
 need git; need docker; need curl
 CMD="$(compose_cmd)"
 
 # ───────────────────────── Download volume tarballs ─────────────────────────
 echo "==> Using release tag: $VOLS_RELEASE_TAG"
+if [[ "$FRESH" -eq 1 ]]; then
+  echo ">>> --fresh: removing cached downloads at $DOWNLOAD_DIR"
+  rm -rf "$DOWNLOAD_DIR"
+fi
 mkdir -p "$DOWNLOAD_DIR"
+
 for i in "${!VOLS[@]}"; do
   vol="${VOLS[$i]}"
   sha="${SHAS[$i]}"
   url="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${VOLS_RELEASE_TAG}/${vol}.tar"
   out="${DOWNLOAD_DIR}/${vol}.tar"
-  dl "$url" "$out"
+
+  if [[ -f "$out" && -s "$out" ]]; then
+    if valid_sha256 "$out" "$sha"; then
+      echo ">>> Using cached ${vol}.tar (checksum OK) — skipping download"
+      continue
+    else
+      echo ">>> Cached ${vol}.tar failed checksum — removing and re-downloading"
+      rm -f "$out"
+    fi
+  fi
+
+  if ! dl "$url" "$out"; then
+    echo ">>> Download resume failed; retrying with a fresh full download…"
+    rm -f "$out"
+    curl -fL --retry 3 --retry-delay 2 -o "$out" "$url"
+  fi
+
   verify_sha256 "$out" "$sha"
 done
 
@@ -265,7 +295,7 @@ restore_volume_from_tar "dbvolume"                 "${DOWNLOAD_DIR}/dbvolume.tar
 restore_volume_from_tar "atlasdb-postgres-data"    "${DOWNLOAD_DIR}/atlasdb-postgres-data.tar"
 restore_volume_from_tar "rstudio-home-data"        "${DOWNLOAD_DIR}/rstudio-home-data.tar"
 restore_volume_from_tar "rstudio-tmp-data"         "${DOWNLOAD_DIR}/rstudio-tmp-data.tar"
-restore_volume_from_tar "rstudio-rsite-data"         "${DOWNLOAD_DIR}/rstudio-rsite-data.tar"
+restore_volume_from_tar "rstudio-rsite-data"       "${DOWNLOAD_DIR}/rstudio-rsite-data.tar"
 
 # ───────────────────────── IRIS two-step ───────────────────────── 
 echo ">>> Preparing IRIS durable volume permissions"
