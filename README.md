@@ -83,7 +83,7 @@ All commands below should be run in your macOS Terminal.
    - Skips Achilles SQL regeneration if RESULTS already exist
    - Populates `ACHILLES_RESULT_CONCEPT` and a WebAPI-shaped `CONCEPT_HIERARCHY`
    - Adds small IRIS-safe indexes
-   - Always clears WebAPI caches (silently skipped if WebAPI database isn’t reachable).
+   - Always clears WebAPI caches
 
    ```r
    # Either path works (symlink points to the same file):
@@ -132,7 +132,7 @@ All commands below should be run in your macOS Terminal.
    - Connect to IRIS via JDBC
    - Drop **all views, all foreign keys, and all tables** in both the CDM schema (`OMOPCDM53`) and RESULTS schema (`OMOPCDM55_RESULTS`)
    - Recreate the schema shells (empty markers) so they remain visible
-   - Bust ATLAS/WebAPI caches in Postgres
+   - Always clears WebAPI caches
 
    **Usage (RStudio console):**
    ```r
