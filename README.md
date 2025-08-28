@@ -132,7 +132,7 @@ All commands below should be run in your macOS Terminal.
    - Connect to IRIS via JDBC
    - Drop **all views, all foreign keys, and all tables** in both the CDM schema (`OMOPCDM53`) and RESULTS schema (`OMOPCDM55_RESULTS`)
    - Recreate the schema shells (empty markers) so they remain visible
-   - Optionally bust ATLAS/WebAPI caches in Postgres (default: enabled)
+   - Bust ATLAS/WebAPI caches in Postgres
 
    **Usage (RStudio console):**
    ```r
@@ -156,7 +156,7 @@ All commands below should be run in your macOS Terminal.
   ```bash
   docker compose -f Broadsea/docker-compose.yml --env-file Broadsea/.env logs -f <service-name>
   ```
-- **Force fresh volume downloads (fixes `curl 416` or stale cache)**
+- **Force fresh volume downloads**
   ```bash
   ./scripts/replica.sh --fresh
   ```
