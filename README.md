@@ -58,6 +58,9 @@ All commands below should be run in your macOS Terminal.
    - Install the Results initializer script at:
      - `/home/rstudio/initialize_results_iris.R`
      - Symlink: `/opt/hades/scripts/initialize_results_iris.R`
+   - Install the Wipe script at:
+     - `/home/rstudio/wipe_omop_iris.R`
+     - Symlink: `/opt/hades/scripts/wipe_omop_iris.R`
 
 3. **Access the services:**
    - IRIS Portal → <http://localhost:52773/csp/sys/UtilHome.csp>  
@@ -122,6 +125,25 @@ All commands below should be run in your macOS Terminal.
      ))
    )
    ```
+
+5. **(From RStudio) Wipe CDM + RESULTS**
+
+   The **wipe script** (`wipe_omop_iris.R`) will:
+   - Connect to IRIS via JDBC
+   - Drop **all views, all foreign keys, and all tables** in both the CDM schema (`OMOPCDM53`) and RESULTS schema (`OMOPCDM55_RESULTS`)
+   - Recreate the schema shells (empty markers) so they remain visible
+   - Optionally bust ATLAS/WebAPI caches in Postgres (default: enabled)
+
+   **Usage (RStudio console):**
+   ```r
+   # Either path works:
+   source("~/scripts/hades/wipe_omop_iris.R")
+   # or
+   source("/opt/hades/scripts/wipe_omop_iris.R")
+   ```
+
+   This will **completely remove all data and tables** in CDM + RESULTS.  
+   You must re-run `initialize_results_iris.R` afterwards to re-create the tables and repopulate data.
 
 ## Notes
 - `.env` is committed for zero-touch setup; adjust values if needed.

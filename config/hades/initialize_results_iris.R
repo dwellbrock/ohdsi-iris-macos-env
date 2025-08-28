@@ -1,8 +1,38 @@
 #!/usr/bin/env Rscript
-# test.R — original working pipeline, wrapped + explicit IRIS connectionString
+# IRIS Eunomia → Achilles → ATLAS (RESULTS in OMOPCDM55_RESULTS)
+# IRIS-safe; open-open; auto-reconnect; INFORMATION_SCHEMA-only; Achilles fallback.
 
-local({
+# ========= Variables =========
+irisServer       <- "host.docker.internal"
+irisPort         <- 1972
+irisNamespace    <- "USER"
+irisUser         <- "_SYSTEM"
+irisPassword     <- "_SYSTEM"
+jdbcDriverFolder <- "/opt/hades/jdbc_drivers"
 
+cdmSchema        <- "OMOPCDM53"
+resultsSchema    <- "OMOPCDM55_RESULTS"
+scratchSchema    <- "OMOPCDM55_SCRATCH"
+scratchSentinel  <- "__SCRATCH_HEARTBEAT"
+
+sourceName        <- "Eunomia 5.3 on IRIS"
+excludeAnalyses   <- c(802)   # IRIS CTE restriction
+numThreads        <- 1
+smallCellCount    <- 5
+cdmVersion        <- "5.3"
+achillesOutputDir <- "achilles_output"
+
+forceAchilles <- FALSE
+reloadEunomia <- FALSE
+
+pgHost        <- "broadsea-atlasdb"
+pgPort        <- 5432
+pgDatabase    <- "postgres"
+pgUser        <- "postgres"
+pgPassword    <- "mypass"
+atlasSourceId <- 2
+
+# ========= Packages =========
 suppressPackageStartupMessages({
   if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes")
   if (!requireNamespace("DatabaseConnector", quietly = TRUE)) install.packages("DatabaseConnector")
@@ -14,187 +44,147 @@ suppressPackageStartupMessages({
   library(DBI); library(RPostgres)
 })
 options(rstudio.connectionObserver.errorsSuppressed = TRUE)
+Sys.setenv(DATABASECONNECTOR_JAR_FOLDER = jdbcDriverFolder)
 
-# ----- helpers to read params from calling env (or defaults) -----
-get0nz <- function(nm, default = NULL) {
-  v <- get0(nm, inherits = TRUE, ifnotfound = default)
-  if (is.null(v)) return(default)
-  s <- as.character(v); if (!nzchar(s)) return(default); v
-}
-as_int <- function(x, d) { y <- suppressWarnings(as.integer(x)); if (is.na(y)) d else y }
+# ========= Helpers (open-open + auto-reconnect; no errorReport files) =========
 q <- function(x) paste0('"', x, '"')
 dir.ensure <- function(p) if (!dir.exists(p)) dir.create(p, recursive = TRUE, showWarnings = FALSE)
-exec_sql <- function(conn, sql) DatabaseConnector::executeSql(conn, sql)
-
-# ========= Variables (defaults; can be overridden via sys.source envir) =========
-irisConnStr      <- get0nz("irisConnStr", NULL)                # preferred (e.g. "jdbc:IRIS://host.docker.internal:1972/USER")
-irisServer       <- get0nz("irisServer", "host.docker.internal")
-irisPort         <- as_int(get0nz("irisPort", 1972L), 1972L)
-irisNamespace    <- get0nz("irisNamespace", "USER")
-irisUser         <- get0nz("irisUser", "_SYSTEM")
-irisPassword     <- get0nz("irisPassword", "_SYSTEM")
-jdbcDriverFolder <- get0nz("jdbcDriverFolder", "/opt/hades/jdbc_drivers")
-
-cdmSchema        <- get0nz("cdmSchema", "OMOPCDM53")
-resultsSchema    <- get0nz("resultsSchema", "OMOPCDM55_RESULTS")
-scratchSchema    <- get0nz("scratchSchema", "OMOPCDM55_SCRATCH")
-scratchSentinel  <- "__SCRATCH_HEARTBEAT"
-
-sourceName        <- get0nz("sourceName", "Eunomia 5.3 on IRIS")
-excludeAnalyses   <- { x <- get0("excludeAnalyses", inherits=TRUE, ifnotfound=c(802)); if (is.null(x)) c(802) else as.integer(x) }
-numThreads        <- as_int(get0nz("numThreads", 1L), 1L)
-smallCellCount    <- as_int(get0nz("smallCellCount", 5L), 5L)
-cdmVersion        <- as.character(get0nz("cdmVersion", "5.3"))
-achillesOutputDir <- get0nz("achillesOutputDir", "achilles_output")
-
-forceAchilles     <- isTRUE(get0("forceAchilles", inherits=TRUE, ifnotfound=FALSE))
-reloadEunomia     <- isTRUE(get0("reloadEunomia", inherits=TRUE, ifnotfound=FALSE))
-
-pgHost        <- get0nz("pgHost", "broadsea-atlasdb")
-pgPort        <- as_int(get0nz("pgPort", 5432L), 5432L)
-pgDatabase    <- get0nz("pgDatabase", "postgres")
-pgUser        <- get0nz("pgUser", "postgres")
-pgPassword    <- get0nz("pgPassword", "mypass")
-atlasSourceId <- as_int(get0nz("atlasSourceId", 2L), 2L)
-
-# Pretty dump
-cat("== PARAM DUMP ==\n",
-    "  irisConnStr      : ", if (!is.null(irisConnStr)) irisConnStr else "(will build from server/port/ns)", "\n",
-    "  irisServer       : ", irisServer, "\n",
-    "  irisPort         : ", irisPort, "\n",
-    "  irisNamespace    : ", irisNamespace, "\n",
-    "  irisUser         : ", irisUser, "\n",
-    "  irisPassword     : ", if (nzchar(irisPassword)) "•••••••" else '""', "\n",
-    "  jdbcDriverFolder : ", jdbcDriverFolder, "\n",
-    "  cdmSchema        : ", cdmSchema, "\n",
-    "  resultsSchema    : ", resultsSchema, "\n",
-    "  scratchSchema    : ", scratchSchema, "\n",
-    "  sourceName       : ", sourceName, "\n",
-    "  cdmVersion       : ", cdmVersion, "\n",
-    "  excludeAnalyses  : ", paste(excludeAnalyses, collapse=","), "\n",
-    "  numThreads       : ", numThreads, "\n",
-    "  smallCellCount   : ", smallCellCount, "\n",
-    "  forceAchilles    : ", forceAchilles, "\n",
-    "  reloadEunomia    : ", reloadEunomia, "\n",
-    "  atlasSourceId    : ", atlasSourceId, "\n\n", sep="")
-
-# Build connectionString if not provided
-if (is.null(irisConnStr) || !nzchar(as.character(irisConnStr))) {
-  irisConnStr <- sprintf("jdbc:IRIS://%s:%d/%s", irisServer, irisPort, irisNamespace)
-}
 dir.ensure(achillesOutputDir); dir.ensure(file.path(achillesOutputDir, "sql")); dir.ensure("output")
+irisConnStr <- sprintf("jdbc:IRIS://%s:%d/%s", irisServer, irisPort, irisNamespace)
 
-# -------- Catalog helpers (original) --------
-table_exists <- function(conn, schema, table) {
-  sql <- paste0("SELECT COUNT(*) AS N FROM INFORMATION_SCHEMA.TABLES ",
-                "WHERE UPPER(TABLE_SCHEMA)=UPPER('", schema, "') AND UPPER(TABLE_NAME)=UPPER('", toupper(table), "')")
-  tryCatch(DatabaseConnector::querySql(conn, sql)$N[1] > 0, error=function(e) FALSE)
+# Single place to ping the connection WITHOUT creating errorReportSql.txt
+ping_conn <- function(c) {
+  ok <- TRUE
+  tryCatch({
+    DatabaseConnector::querySql(c, "SELECT 1", errorReportFile = NULL)
+  }, error = function(e) ok <<- FALSE)
+  ok
 }
-count_rows <- function(conn, schema, table) {
-  if (!table_exists(conn, schema, table)) return(0L)
-  as.integer(DatabaseConnector::querySql(conn, paste0("SELECT COUNT(*) N FROM ", q(schema), ".", q(toupper(table))))$N[1])
+
+connect_with_open_check <- function() {
+  details <- DatabaseConnector::createConnectionDetails(
+    dbms             = "iris",
+    connectionString = irisConnStr,
+    user             = irisUser,
+    password         = irisPassword,
+    pathToDriver     = jdbcDriverFolder
+  )
+  c <- DatabaseConnector::connect(details)
+  # quick retry loop to dodge the tiny post-open window
+  if (!ping_conn(c)) {
+    Sys.sleep(0.25)
+    if (!ping_conn(c)) {
+      try(DatabaseConnector::disconnect(c), silent = TRUE)
+      stop("IRIS connection sanity check failed (ping did not succeed).")
+    }
+  }
+  c
 }
-schema_exists <- function(conn, schema) {
-  n1 <- tryCatch({
-    sql <- paste0("SELECT COUNT(*) AS N FROM INFORMATION_SCHEMA.SCHEMATA ",
-                  "WHERE UPPER(SCHEMA_NAME)=UPPER('", schema, "')")
-    as.integer(DatabaseConnector::querySql(conn, sql)$N[1])
-  }, error=function(e) 0L)
-  if (!is.na(n1) && n1 > 0L) return(TRUE)
-  n2 <- tryCatch({
-    sql <- paste0("SELECT COUNT(*) AS N FROM ", q("%Dictionary"), ".", q("Schema"),
-                  " WHERE UPPER(", q("Name"), ")=UPPER('", schema, "')")
-    as.integer(DatabaseConnector::querySql(conn, sql)$N[1])
-  }, error=function(e) 0L)
-  isTRUE(n2 > 0L)
+
+conn <- NULL
+ensure_conn_alive <- function() {
+  if (is.null(conn) || !ping_conn(conn)) {
+    message("Connection not open — reconnecting …")
+    conn <<- connect_with_open_check()
+  }
 }
-ensure_scratch_with_sentinel <- function(conn, schema, sentinel) {
-  if (table_exists(conn, schema, sentinel)) {
-    n <- tryCatch({
-      as.integer(DatabaseConnector::querySql(
-        conn, paste0("SELECT COUNT(*) AS N FROM ", q(schema), ".", q(sentinel), " WHERE ", q("ID"), " = 1")
-      )$N[1])
-    }, error=function(e) 0L)
-    if (n == 0L) exec_sql(conn, paste0(
+
+# Always use these wrappers so pings happen automatically and no errorReport files get written
+dc_query <- function(sql) {
+  ensure_conn_alive()
+  DatabaseConnector::querySql(conn, sql, errorReportFile = NULL)
+}
+dc_exec <- function(sql) {
+  ensure_conn_alive()
+  DatabaseConnector::executeSql(conn, sql, errorReportFile = NULL)
+}
+
+# ======= Catalog + utility helpers (unchanged except they call dc_* now) =======
+table_exists <- function(schema, table) {
+  sql <- paste0(
+    "SELECT COUNT(*) AS N FROM INFORMATION_SCHEMA.TABLES ",
+    "WHERE UPPER(TABLE_SCHEMA)=UPPER('", schema, "') AND UPPER(TABLE_NAME)=UPPER('", toupper(table), "')"
+  )
+  tryCatch(dc_query(sql)$N[1] > 0, error=function(e) FALSE)
+}
+count_rows <- function(schema, table) {
+  if (!table_exists(schema, table)) return(0L)
+  as.integer(dc_query(paste0("SELECT COUNT(*) N FROM ", q(schema), ".", q(toupper(table))))$N[1])
+}
+
+# INFORMATION_SCHEMA only (no %Dictionary.*)
+schema_exists <- function(schema) {
+  n1 <- tryCatch(as.integer(dc_query(paste0(
+    "SELECT COUNT(*) AS N FROM INFORMATION_SCHEMA.SCHEMATA WHERE UPPER(SCHEMA_NAME)=UPPER('", schema, "')"
+  ))$N[1]), error=function(e) 0L)
+  isTRUE(!is.na(n1) && n1 > 0L)
+}
+
+ensure_scratch_with_sentinel <- function(schema, sentinel) {
+  if (table_exists(schema, sentinel)) {
+    n <- tryCatch(as.integer(dc_query(paste0(
+      "SELECT COUNT(*) AS N FROM ", q(schema), ".", q(sentinel), " WHERE ", q("ID"), " = 1"
+    ))$N[1]), error=function(e) 0L)
+    if (n == 0L) dc_exec(paste0(
       "INSERT INTO ", q(schema), ".", q(sentinel), " (", q("ID"), ",", q("TS"), ") VALUES (1, CURRENT_TIMESTAMP)"
     ))
     return(invisible(TRUE))
   }
-  if (!schema_exists(conn, schema)) {
-    tryCatch(exec_sql(conn, paste0("CREATE SCHEMA ", q(schema))),
+  if (!schema_exists(schema)) {
+    tryCatch(dc_exec(paste0("CREATE SCHEMA ", q(schema))),
              error=function(e){ if (!grepl("already.*exists|SQLCODE:\\s*<-?476>", conditionMessage(e), TRUE)) stop(e) })
   }
-  if (!table_exists(conn, schema, sentinel)) {
-    tryCatch(exec_sql(conn, paste0(
+  if (!table_exists(schema, sentinel)) {
+    tryCatch(dc_exec(paste0(
       "CREATE TABLE ", q(schema), ".", q(sentinel), " (",
       q("ID"), " INT NOT NULL, ", q("TS"), " TIMESTAMP, PRIMARY KEY (", q("ID"), "))"
     )), error=function(e){ if (!grepl("already.*exists|SQLCODE:\\s*<-?201>", conditionMessage(e), TRUE)) stop(e) })
   }
-  n <- tryCatch({
-    as.integer(DatabaseConnector::querySql(
-      conn, paste0("SELECT COUNT(*) AS N FROM ", q(schema), ".", q(sentinel), " WHERE ", q("ID"), " = 1")
-    )$N[1])
-  }, error=function(e) 0L)
-  if (n == 0L) exec_sql(conn, paste0(
+  n <- tryCatch(as.integer(dc_query(paste0(
+    "SELECT COUNT(*) AS N FROM ", q(schema), ".", q(sentinel), " WHERE ", q("ID"), " = 1"
+  ))$N[1]), error=function(e) 0L)
+  if (n == 0L) dc_exec(paste0(
     "INSERT INTO ", q(schema), ".", q(sentinel), " (", q("ID"), ",", q("TS"), ") VALUES (1, CURRENT_TIMESTAMP)"
   ))
   invisible(TRUE)
 }
+
 norm_idx <- function(x) gsub("[^A-Z0-9]", "", toupper(x))
-list_index_names <- function(conn, schema, table) {
-  sql <- paste0("SELECT UPPER(INDEX_NAME) AS IDX FROM INFORMATION_SCHEMA.INDEXES ",
-                "WHERE UPPER(TABLE_SCHEMA)=UPPER('", schema, "') AND UPPER(TABLE_NAME)=UPPER('", toupper(table), "')")
-  out <- tryCatch(DatabaseConnector::querySql(conn, sql)$IDX, error=function(e) character())
+list_index_names <- function(schema, table) {
+  out <- tryCatch(dc_query(paste0(
+    "SELECT UPPER(INDEX_NAME) AS IDX FROM INFORMATION_SCHEMA.INDEXES ",
+    "WHERE UPPER(TABLE_SCHEMA)=UPPER('", schema, "') AND UPPER(TABLE_NAME)=UPPER('", toupper(table), "')"
+  ))$IDX, error=function(e) character())
   unique(out)
 }
-index_exists <- function(conn, schema, table, idxName) {
-  existing <- list_index_names(conn, schema, toupper(table))
+index_exists <- function(schema, table, idxName) {
+  existing <- list_index_names(schema, toupper(table))
   if (!length(existing)) return(FALSE)
   nExisting <- norm_idx(existing); nTarget <- norm_idx(idxName)
   any(nExisting == nTarget)
 }
-index_create_safe <- function(conn, schema, table, idx, cols) {
-  if (index_exists(conn, schema, table, idx)) { message("Index ", idx, " already exists — skipping."); return(invisible(TRUE)) }
+index_create_safe <- function(schema, table, idx, cols) {
+  if (index_exists(schema, table, idx)) { message("Index ", idx, " already exists — skipping."); return(invisible(TRUE)) }
   alt <- gsub("_","", idx)
-  if (!identical(alt, idx) && index_exists(conn, schema, table, alt)) { message("Index ", alt, " exists — skipping."); return(invisible(TRUE)) }
-  tryCatch(exec_sql(conn, paste0("CREATE INDEX ", idx, " ON ", q(schema), ".", q(table), " (", cols, ")")),
+  if (!identical(alt, idx) && index_exists(schema, table, alt)) { message("Index ", alt, " exists — skipping."); return(invisible(TRUE)) }
+  tryCatch(dc_exec(paste0("CREATE INDEX ", idx, " ON ", q(schema), ".", q(table), " (", cols, ")")),
            error=function(e){ if (!grepl("already.*index|already.*defined|SQLCODE:\\s*<-?324>", conditionMessage(e), TRUE)) stop(e) })
 }
 
-# ========= Stage 0: Ensure `conn` (IRIS) — using explicit connectionString =========
+# ========= Stage 0: Connect & prep =========
 message("Creating IRIS connection as `conn` …")
-details <- DatabaseConnector::createConnectionDetails(
-  dbms             = "iris",
-  connectionString = irisConnStr,    # <- same pattern that worked for you
-  user             = irisUser,
-  password         = irisPassword,
-  pathToDriver     = jdbcDriverFolder
-)
-conn <- DatabaseConnector::connect(details)
+conn <- connect_with_open_check()
 on.exit(try(DatabaseConnector::disconnect(conn), silent = TRUE), add = TRUE)
 
-# Sanity prime (accept if either path works)
-ok <- FALSE
-r1 <- try(DBI::dbGetQuery(conn, "SELECT 1 AS ONE"), silent = TRUE)
-if (!inherits(r1, "try-error") && is.data.frame(r1) && identical(as.integer(r1[[1]][1]), 1L)) ok <- TRUE
-if (!ok) {
-  r2 <- try(DatabaseConnector::querySql(conn, "SELECT 1 AS ONE"), silent = TRUE)
-  if (!inherits(r2, "try-error") && is.data.frame(r2) && identical(as.integer(r2[[1]][1]), 1L)) ok <- TRUE
-}
-if (!ok) stop("IRIS connection established but SELECT 1 failed via both DBI and DatabaseConnector.")
-
-# Ensure RESULTS schema
-if (!schema_exists(conn, resultsSchema)) {
-  tryCatch(exec_sql(conn, paste0("CREATE SCHEMA ", q(resultsSchema))),
-           error=function(e){ if (!grepl("already.*exists|SQLCODE:\\s*<-?476>", conditionMessage(e), TRUE)) stop(e) })
-}
+# Ensure RESULTS schema (now safe)
+if (!schema_exists(resultsSchema)) dc_exec(paste0("CREATE SCHEMA ", q(resultsSchema)))
 
 # Ensure SCRATCH + sentinel; route temp emulation
-ensure_scratch_with_sentinel(conn, scratchSchema, scratchSentinel)
+ensure_scratch_with_sentinel(scratchSchema, scratchSentinel)
 options(sqlRenderTempEmulationSchema = scratchSchema)
 
 # ========= Stage 1: (Optional) Eunomia → OMOPCDM53 =========
-personBefore <- count_rows(conn, cdmSchema, "PERSON")
+personBefore <- count_rows(cdmSchema, "PERSON")
 message("PERSON count before load in ", cdmSchema, ": ", personBefore)
 if (reloadEunomia || personBefore == 0L) {
   message("Loading Eunomia into ", cdmSchema, " …")
@@ -215,11 +205,11 @@ if (reloadEunomia || personBefore == 0L) {
     )
   }
 } else message("Skipping CDM reload (PERSON > 0).")
-personAfter <- count_rows(conn, cdmSchema, "PERSON")
+personAfter <- count_rows(cdmSchema, "PERSON")
 message("PERSON count after load in ", cdmSchema, ": ", personAfter)
 
 # ========= Stage 2: Ensure 6 core RESULTS tables =========
-ensure_core_results_tables <- function(conn, schema) {
+ensure_core_results_tables <- function(schema) {
   ddls <- list(
     ACHILLES_ANALYSIS = paste0(
       "CREATE TABLE ", q(schema), ".", q("ACHILLES_ANALYSIS"), " (",
@@ -283,30 +273,21 @@ ensure_core_results_tables <- function(conn, schema) {
       q("CONCEPT_NAME"), " VARCHAR(1024))"
     )
   )
-  for (nm in names(ddls)) if (!table_exists(conn, schema, nm)) exec_sql(conn, ddls[[nm]])
+  for (nm in names(ddls)) if (!table_exists(schema, nm)) dc_exec(ddls[[nm]])
 }
-ensure_core_results_tables(conn, resultsSchema)
+ensure_core_results_tables(resultsSchema)
 
-# ========= Stage 3: (Optional) Achilles SQL-only generation + exec =========
-existingAR  <- count_rows(conn, resultsSchema, "ACHILLES_RESULTS")
-existingARD <- count_rows(conn, resultsSchema, "ACHILLES_RESULTS_DIST")
+# ========= Stage 3: Achilles SQL-only (per-file) with fallback =========
+existingAR  <- count_rows(resultsSchema, "ACHILLES_RESULTS")
+existingARD <- count_rows(resultsSchema, "ACHILLES_RESULTS_DIST")
+ranAchillesDirect <- FALSE   # <— NEW FLAG
+
 if (!forceAchilles && (existingAR > 0 || existingARD > 0)) {
   message("Skipping Achilles SQL regeneration (RESULTS already present). Set forceAchilles <- TRUE to rebuild.")
 } else {
   message("Generating Achilles SQL (sqlOnly=TRUE) → SCRATCH=", scratchSchema)
-
-  # -- IMPORTANT: Achilles checks pathToDriver even in sqlOnly mode.
-  # Provide a 'dummy' connectionDetails with a non-empty pathToDriver.
-  # It will NOT connect because sqlOnly=TRUE.
-  Sys.setenv(DATABASECONNECTOR_JAR_FOLDER = jdbcDriverFolder)  # extra safety
-  dummyDetails <- DatabaseConnector::createConnectionDetails(
-    dbms         = "sql server",
-    server       = "localhost",   # arbitrary; not used
-    user         = "dummy",       # arbitrary; not used
-    password     = "dummy",       # arbitrary; not used
-    pathToDriver = jdbcDriverFolder
-  )
-
+  # minimal dummy details; Achilles only needs them present
+  dummyDetails <- DatabaseConnector::createConnectionDetails(dbms="sql server", server="ignored")
   ach_args <- list(
     connectionDetails        = dummyDetails,
     cdmDatabaseSchema        = cdmSchema,
@@ -325,36 +306,88 @@ if (!forceAchilles && (existingAR > 0 || existingARD > 0)) {
     verboseMode              = TRUE,
     excludeAnalysisIds       = excludeAnalyses
   )
-
   supported <- try(names(formals(Achilles::achilles)), silent = TRUE)
   if (!inherits(supported, "try-error")) ach_args <- ach_args[names(ach_args) %in% supported]
-
-  # clean out any prior SQL files then (re)generate
   unlink(list.files(achillesOutputDir, pattern="\\.sql$", full.names=TRUE), recursive=TRUE, force=TRUE)
   invisible(do.call(Achilles::achilles, ach_args))
-
-  # Execute generated SQL (strip index & schema DDL for IRIS)
-   # Execute generated SQL (strip index & schema DDL for IRIS)
+  
   patch_ddl <- function(txt) {
-    # strip DDL that IRIS doesn't want
     txt <- gsub("(?im)^\\s*drop\\s+index\\b[^;]*;\\s*",                "", txt, perl=TRUE)
     txt <- gsub("(?im)^\\s*create\\s+(unique\\s+)?index\\b[^;]*;\\s*", "", txt, perl=TRUE)
     txt <- gsub("(?im)^\\s*alter\\s+index\\b[^;]*;\\s*",               "", txt, perl=TRUE)
     txt <- gsub("(?im)^\\s*create\\s+schema\\b[^;]*;\\s*",             "", txt, perl=TRUE)
     txt <- gsub("(?im)^\\s*drop\\s+schema\\b[^;]*;\\s*",               "", txt, perl=TRUE)
-
-    # --- T-SQL -> IRIS shims ---
     txt <- gsub("(?i)\\bcount_big\\s*\\(", "COUNT(", txt, perl=TRUE)
     txt <- gsub("(?i)\\bisnull\\s*\\(",   "COALESCE(", txt, perl=TRUE)
     txt <- gsub("(?i)\\bnvarchar\\b",     "VARCHAR",  txt, perl=TRUE)
     txt <- gsub("(?m)^\\s*GO\\s*$",       "",         txt, perl=TRUE)
     txt
   }
-} 
+  
+  # collect per-file SQL (Achilles 1.7.2 may only output achilles.sql; handle that)
+  cand_dirs <- c(file.path(achillesOutputDir, "sql"),
+                 file.path(achillesOutputDir, "sql_server"),
+                 achillesOutputDir)
+  sql_files <- unique(unlist(lapply(cand_dirs, function(d)
+    if (dir.exists(d)) list.files(d, pattern="\\.(?i)sql$", full.names=TRUE, recursive=TRUE) else character(0)
+  )))
+  # Exclude the monolithic driver only if we also have per-analysis files:
+  if (any(basename(sql_files) != "achilles.sql")) {
+    sql_files <- sql_files[basename(sql_files) != "achilles.sql"]
+  } else {
+    sql_files <- character(0)
+  }
+  
+  if (length(sql_files) > 0) {
+    message("Executing ", length(sql_files), " SQL file(s)…")
+    for (f in sql_files) {
+      cat(sprintf("  - %s … ", basename(f)))
+      ok <- TRUE
+      tryCatch({
+        txt <- readChar(f, file.info(f)$size, useBytes=TRUE)
+        txt <- gsub("\r\n", "\n", txt, fixed=TRUE)
+        txt <- SqlRender::translate(sql = txt, targetDialect = "sql server",
+                                    tempEmulationSchema = scratchSchema)
+        txt <- patch_ddl(txt)
+        dc_exec(txt)
+      }, error=function(e){ ok<<-FALSE; message("\n      -> ", conditionMessage(e)) })
+      if (ok) cat("ok\n")
+    }
+  } else {
+    message("No per-file SQL was generated — running Achilles directly against IRIS (sqlOnly=FALSE).")
+    # Direct execution path: IRIS conn + temp emulation; no table creation.
+    irisDetails <- DatabaseConnector::createConnectionDetails(
+      dbms             = "iris",
+      connectionString = irisConnStr,
+      user             = irisUser,
+      password         = irisPassword,
+      pathToDriver     = jdbcDriverFolder
+    )
+    invisible(Achilles::achilles(
+      connectionDetails        = irisDetails,
+      cdmDatabaseSchema        = cdmSchema,
+      resultsDatabaseSchema    = resultsSchema,
+      vocabDatabaseSchema      = cdmSchema,
+      scratchDatabaseSchema    = scratchSchema,
+      tempEmulationSchema      = scratchSchema,
+      sourceName               = sourceName,
+      createTable              = FALSE,
+      updateGivenAnalysesOnly  = FALSE,
+      smallCellCount           = smallCellCount,
+      numThreads               = numThreads,
+      cdmVersion               = cdmVersion,
+      sqlOnly                  = FALSE,
+      outputFolder             = achillesOutputDir,
+      verboseMode              = TRUE,
+      excludeAnalysisIds       = excludeAnalyses
+    ))
+    ranAchillesDirect <- TRUE   # <— SET FLAG
+  }
+}
 
 # ========= Stage 4: Populate ACHILLES_RESULT_CONCEPT from ALL strata =========
 message("Populating ", resultsSchema, ".ACHILLES_RESULT_CONCEPT from RESULTS …")
-exec_sql(conn, paste0(
+dc_exec(paste0(
   'DELETE FROM ', q(resultsSchema), '.', q('ACHILLES_RESULT_CONCEPT'), '; ',
   'INSERT INTO ', q(resultsSchema), '.', q('ACHILLES_RESULT_CONCEPT'), ' (', q('ANALYSIS_ID'), ',', q('CONCEPT_ID'), ') ',
   'SELECT DISTINCT r.', q('ANALYSIS_ID'), ', c.', q('CONCEPT_ID'), ' ',
@@ -380,9 +413,9 @@ message("Rebuilding ", resultsSchema, ".CONCEPT_HIERARCHY (WebAPI shape) …")
 ch_required <- c("CONCEPT_ID","CONCEPT_NAME","TREEMAP","CONCEPT_HIERARCHY_TYPE",
                  "LEVEL1_CONCEPT_NAME","LEVEL2_CONCEPT_NAME","LEVEL3_CONCEPT_NAME","LEVEL4_CONCEPT_NAME")
 
-ensure_ch_webapi_shape <- function(conn, schema) {
-  if (!table_exists(conn, schema, "CONCEPT_HIERARCHY")) {
-    exec_sql(conn, paste0(
+ensure_ch_webapi_shape <- function(schema) {
+  if (!table_exists(schema, "CONCEPT_HIERARCHY")) {
+    dc_exec(paste0(
       "CREATE TABLE ", q(schema), ".", q("CONCEPT_HIERARCHY"), " (",
       q("CONCEPT_ID"), " INT NOT NULL, ",
       q("CONCEPT_NAME"), " VARCHAR(1024), ",
@@ -395,14 +428,14 @@ ensure_ch_webapi_shape <- function(conn, schema) {
     ))
     return(invisible(TRUE))
   }
-  cols <- tryCatch(DatabaseConnector::querySql(conn, paste0(
+  cols <- tryCatch(dc_query(paste0(
     "SELECT UPPER(COLUMN_NAME) C FROM INFORMATION_SCHEMA.COLUMNS ",
     "WHERE UPPER(TABLE_SCHEMA)=UPPER('", schema, "') AND UPPER(TABLE_NAME)='CONCEPT_HIERARCHY'"
   ))$C, error=function(e) character())
   missing <- setdiff(ch_required, cols)
   if (length(missing) == 0) return(invisible(TRUE))
-  exec_sql(conn, paste0("DROP TABLE ", q(schema), ".", q("CONCEPT_HIERARCHY")))
-  exec_sql(conn, paste0(
+  dc_exec(paste0("DROP TABLE ", q(schema), ".", q("CONCEPT_HIERARCHY")))
+  dc_exec(paste0(
     "CREATE TABLE ", q(schema), ".", q("CONCEPT_HIERARCHY"), " (",
     q("CONCEPT_ID"), " INT NOT NULL, ",
     q("CONCEPT_NAME"), " VARCHAR(1024), ",
@@ -415,11 +448,11 @@ ensure_ch_webapi_shape <- function(conn, schema) {
   ))
   invisible(TRUE)
 }
-ensure_ch_webapi_shape(conn, resultsSchema)
-exec_sql(conn, paste0('DELETE FROM ', q(resultsSchema), '.', q('CONCEPT_HIERARCHY')))
+ensure_ch_webapi_shape(resultsSchema)
+dc_exec(paste0('DELETE FROM ', q(resultsSchema), '.', q('CONCEPT_HIERARCHY')))
 
 ins_flat <- function(label, domain) {
-  exec_sql(conn, paste0(
+  dc_exec(paste0(
     "INSERT INTO ", q(resultsSchema), ".", q("CONCEPT_HIERARCHY"), " (",
     q("CONCEPT_ID"), ",", q("CONCEPT_NAME"), ",", q("TREEMAP"), ",", q("CONCEPT_HIERARCHY_TYPE"), ",",
     q("LEVEL1_CONCEPT_NAME"), ",", q("LEVEL2_CONCEPT_NAME"), ",", q("LEVEL3_CONCEPT_NAME"), ",", q("LEVEL4_CONCEPT_NAME"), ") ",
@@ -443,48 +476,49 @@ for (d in list(
   list("Device","Device")
 )) ins_flat(d[[1]], d[[2]])
 
-# ========= Stage 6: Indices (skip if exist) =========
-index_create_safe(conn, resultsSchema, "ACHILLES_RESULTS",        "IDX_AR_AID",  q("ANALYSIS_ID"))
-index_create_safe(conn, resultsSchema, "ACHILLES_RESULTS_DIST",   "IDX_ARD_AID", q("ANALYSIS_ID"))
-index_create_safe(conn, resultsSchema, "ACHILLES_RESULT_CONCEPT", "IDX_ARC_AID", q("ANALYSIS_ID"))
-index_create_safe(conn, resultsSchema, "CONCEPT_HIERARCHY",       "IDX_CH_CID",  q("CONCEPT_ID"))
+# ========= Stage 6: Indices (skip if Achilles already did them) =========
+if (!ranAchillesDirect) {
+  index_create_safe(resultsSchema, "ACHILLES_RESULTS",        "IDX_AR_AID",  q("ANALYSIS_ID"))
+  index_create_safe(resultsSchema, "ACHILLES_RESULTS_DIST",   "IDX_ARD_AID", q("ANALYSIS_ID"))
+  index_create_safe(resultsSchema, "ACHILLES_RESULT_CONCEPT", "IDX_ARC_AID", q("ANALYSIS_ID"))
+  index_create_safe(resultsSchema, "CONCEPT_HIERARCHY",       "IDX_CH_CID",  q("CONCEPT_ID"))
+} else {
+  message("Skipping Stage 6: Achilles (direct) already handled indexes.")
+}
 
 # ========= Stage 7: Verification + Cache-bust =========
 resCounts <- data.frame(
   table=c("ACHILLES_ANALYSIS","ACHILLES_RESULTS","ACHILLES_RESULTS_DIST","ACHILLES_HEEL_RESULTS","ACHILLES_RESULT_CONCEPT","CONCEPT_HIERARCHY"),
   n=c(
-    count_rows(conn, resultsSchema, "ACHILLES_ANALYSIS"),
-    count_rows(conn, resultsSchema, "ACHILLES_RESULTS"),
-    count_rows(conn, resultsSchema, "ACHILLES_RESULTS_DIST"),
-    count_rows(conn, resultsSchema, "ACHILLES_HEEL_RESULTS"),
-    count_rows(conn, resultsSchema, "ACHILLES_RESULT_CONCEPT"),
-    count_rows(conn, resultsSchema, "CONCEPT_HIERARCHY")
+    count_rows(resultsSchema, "ACHILLES_ANALYSIS"),
+    count_rows(resultsSchema, "ACHILLES_RESULTS"),
+    count_rows(resultsSchema, "ACHILLES_RESULTS_DIST"),
+    count_rows(resultsSchema, "ACHILLES_HEEL_RESULTS"),
+    count_rows(resultsSchema, "ACHILLES_RESULT_CONCEPT"),
+    count_rows(resultsSchema, "CONCEPT_HIERARCHY")
   )
 )
 print(resCounts)
 
 keyAnalyses <- c(400,401,402, 700,701, 200,201, 600,601)
-ka <- tryCatch(DatabaseConnector::querySql(
-  conn,
-  paste0(
-    "SELECT ", q("ANALYSIS_ID"), ", COUNT(*) AS ", q("N"),
-    " FROM ", q(resultsSchema), ".", q("ACHILLES_RESULTS"),
-    " WHERE ", q("ANALYSIS_ID"), " IN (", paste(keyAnalyses, collapse=","), ") ",
-    "GROUP BY ", q("ANALYSIS_ID"), " ORDER BY ", q("ANALYSIS_ID")
-  )), error=function(e) data.frame())
+ka <- tryCatch(dc_query(paste0(
+  "SELECT ", q("ANALYSIS_ID"), ", COUNT(*) AS ", q("N"),
+  " FROM ", q(resultsSchema), ".", q("ACHILLES_RESULTS"),
+  " WHERE ", q("ANALYSIS_ID"), " IN (", paste(keyAnalyses, collapse=","), ") ",
+  "GROUP BY ", q("ANALYSIS_ID"), " ORDER BY ", q("ANALYSIS_ID")
+)), error=function(e) data.frame())
 if (nrow(ka)) { message("Key ACHILLES_RESULTS counts:"); print(ka) }
 
-dom_cov <- tryCatch(DatabaseConnector::querySql(
-  conn, paste0(
-    'SELECT c.', q('DOMAIN_ID'), ' AS ', q('DOMAIN_LABEL'), ', COUNT(DISTINCT arc.', q('CONCEPT_ID'), ') AS ', q('N_CONCEPTS'), ' ',
-    'FROM ', q(resultsSchema), '.', q('ACHILLES_RESULT_CONCEPT'), ' arc ',
-    'JOIN ', q(cdmSchema), '.', q('CONCEPT'), ' c ON c.', q('CONCEPT_ID'), '= arc.', q('CONCEPT_ID'), ' ',
-    'GROUP BY c.', q('DOMAIN_ID'), ' ORDER BY ', q('N_CONCEPTS'), ' DESC'
-  )), error=function(e) data.frame())
+dom_cov <- tryCatch(dc_query(paste0(
+  'SELECT c.', q('DOMAIN_ID'), ' AS ', q('DOMAIN_LABEL'), ', COUNT(DISTINCT arc.', q('CONCEPT_ID'), ') AS ', q('N_CONCEPTS'), ' ',
+  'FROM ', q(resultsSchema), '.', q('ACHILLES_RESULT_CONCEPT'), ' arc ',
+  'JOIN ', q(cdmSchema), '.', q('CONCEPT'), ' c ON c.', q('CONCEPT_ID'), '= arc.', q('CONCEPT_ID'), ' ',
+  'GROUP BY c.', q('DOMAIN_ID'), ' ORDER BY ', q('N_CONCEPTS'), ' DESC'
+)), error=function(e) data.frame())
 if (nrow(dom_cov)) { message("Result concept coverage by DOMAIN_ID:"); print(dom_cov) }
 
+# Bust WebAPI caches (source_id = 2)
 message("Clearing WebAPI caches via RPostgres (source_id=", atlasSourceId, ") …")
-pg <- NULL
 try({
   pg <- DBI::dbConnect(RPostgres::Postgres(),
                        host=pgHost, port=pgPort,
@@ -495,10 +529,10 @@ try({
   message("WebAPI caches cleared.")
 }, silent=TRUE)
 
+# ========= Summary =========
 message("\n===== Summary =====")
 message("PERSON rows in ", cdmSchema, ": ", personAfter)
-message("RESULTS row counts:"); print(resCounts)
+message("RESULTS row counts:")
+print(resCounts)
 message("Done. Hard-refresh ATLAS (Ctrl/Cmd+Shift+R). ",
         "SCRATCH now carries a persistent sentinel table with one row — existence checks are accurate without CREATE SCHEMA noise.")
-
-}) # end local()
