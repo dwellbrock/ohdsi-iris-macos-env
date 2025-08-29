@@ -253,79 +253,64 @@ bootstrap_hades_scripts() {
 }
 
 bootstrap_hades_uploads() {
-  echo ">>> Creating shared uploads area for CDM & VOCABs"
+  echo ">>> Creating shared uploads area for CDM & VOCABs (shared canonical at /opt; home symlinks for both users)"
   wait_for_container broadsea-hades
   docker exec -u root broadsea-hades bash -lc '
     set -euo pipefail
 
-    # Reuse the same user detection you already use
-    pick_user() {
-      local u
-      if [ -n "${HADES_USER:-}" ] && id -u "$HADES_USER" >/dev/null 2>&1; then echo "$HADES_USER"; return; fi
-      for u in rstudio ohdsi; do if id -u "$u" >/dev/null 2>&1; then echo "$u"; return; fi; done
-      getent passwd | awk -F: '"'"'$3>=1000{print $1; exit}'"'"'
-    }
-
-    RS_USER="$(pick_user)"
-    RS_HOME="$(getent passwd "$RS_USER" | awk -F: '"'"'{print $6}'"'"')"
-    RS_GROUP="$(id -gn "$RS_USER" 2>/dev/null || echo "$RS_USER")"
-
-    # Canonical shared drop + convenience symlink in the user home
     SHARED_ROOT="/opt/hades/uploads"
+
+    # Ensure base dirs
     mkdir -p "$SHARED_ROOT/cdm" "$SHARED_ROOT/vocabs"
-
-    # Ensure both users exist if present
-    for U in rstudio ohdsi; do
-      if id -u "$U" >/dev/null 2>&1; then
-        # Make sure each has its home
-        H="$(getent passwd "$U" | awk -F: '"'"'{print $6}'"'"')"
-        [ -n "$H" ] && mkdir -p "$H"
-      fi
-    done
-
-    # Ownership to root is fine when ACLs or 0777 are used; avoid user flips later
     chown -R root:root "$SHARED_ROOT"
 
-    have_setfacl=0
-    if command -v setfacl >/dev/null 2>&1; then
-      have_setfacl=1
+    # Try to ensure ACL tooling exists (Debian-based rocker images)
+    if ! command -v setfacl >/dev/null 2>&1; then
+      export DEBIAN_FRONTEND=noninteractive
+      (apt-get update && apt-get install -y acl) >/dev/null 2>&1 || true
     fi
 
-    if [ "$have_setfacl" -eq 1 ]; then
-      echo ">>> setfacl available — granting rstudio & ohdsi rwx (with defaults)"
-      # Base perms: group sticky + setgid so new dirs inherit group; world rx (browse), no world write
+    if command -v setfacl >/dev/null 2>&1; then
+      echo ">>> ACLs enabled — granting rstudio & ohdsi rwx + default ACLs"
+      # setgid on dirs so group sticks; conservative world rx (no world write)
       chmod 2775 "$SHARED_ROOT" "$SHARED_ROOT/cdm" "$SHARED_ROOT/vocabs"
-      # Clear any old ACLs then set explicit user ACLs + defaults
-      setfacl -bR "$SHARED_ROOT"
+      setfacl -bR "$SHARED_ROOT" || true
+
       for P in "$SHARED_ROOT" "$SHARED_ROOT/cdm" "$SHARED_ROOT/vocabs"; do
-        # Grant users if they exist; ignore if not present
-        id -u rstudio >/dev/null 2>&1 && setfacl -m u:rstudio:rwx "$P" || true
-        id -u ohdsi   >/dev/null 2>&1 && setfacl -m u:ohdsi:rwx   "$P" || true
-        # Defaults so newly uploaded stuff is accessible, too
-        id -u rstudio >/dev/null 2>&1 && setfacl -d -m u:rstudio:rwx "$P" || true
-        id -u ohdsi   >/dev/null 2>&1 && setfacl -d -m u:ohdsi:rwx   "$P" || true
-        # Keep dirs listable and files readable by others (no write)
-        setfacl -m o:rx "$P" || true
+        for U in rstudio ohdsi; do
+          if id -u "$U" >/dev/null 2>&1; then
+            setfacl -m  u:"$U":rwx "$P" || true
+            setfacl -d -m u:"$U":rwx "$P" || true
+          fi
+        done
+        # listable by others (for troubleshooting), not writable
+        setfacl -m  o:rx "$P" || true
         setfacl -d -m o:rx "$P" || true
       done
     else
-      echo ">>> setfacl NOT available — falling back to wide-open (container-local) perms"
-      # 2777 ensures dir traversal + writes by anyone; setgid keeps group consistent
+      echo ">>> ACLs unavailable — falling back to wide-open (container-local) perms"
       chmod 2777 "$SHARED_ROOT" "$SHARED_ROOT/cdm" "$SHARED_ROOT/vocabs"
     fi
 
-    # Ensure directory execute bit is set (fix for 'visible but empty' symptoms)
+    # Ensure directory traversal bit is set everywhere
     find "$SHARED_ROOT" -type d -exec chmod +x {} +
 
-    # Convenience link in the detected UI user home
-    ln -sfn "$SHARED_ROOT" "$RS_HOME/uploads"
-    chown -h "$RS_USER:$RS_GROUP" "$RS_HOME/uploads" || true
+    # Create ~/uploads symlink for BOTH users if present
+    for U in rstudio ohdsi; do
+      if id -u "$U" >/dev/null 2>&1; then
+        H="$(getent passwd "$U" | awk -F: "{print \$6}")"
+        [ -n "$H" ] && mkdir -p "$H"
+        ln -sfn "$SHARED_ROOT" "$H/uploads"
+        chown -h "$U:$(id -gn "$U")" "$H/uploads" || true
+      fi
+    done
 
-    echo ">>> Upload here inside the container:"
+    echo ">>> Shared upload targets:"
     echo "    - $SHARED_ROOT/cdm"
     echo "    - $SHARED_ROOT/vocabs"
-    echo ">>> And via home symlink:"
-    echo "    - $RS_HOME/uploads/{cdm,vocabs}"
+    echo ">>> Home symlinks created for existing users (if present):"
+    echo "    - ~rstudio/uploads  -> $SHARED_ROOT"
+    echo "    - ~ohdsi/uploads    -> $SHARED_ROOT"
   '
 }
 
