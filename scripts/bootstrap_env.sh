@@ -252,6 +252,83 @@ bootstrap_hades_scripts() {
   echo ">>> CLI shortcut:      /opt/hades/scripts/initialize_results_iris.R"
 }
 
+bootstrap_hades_uploads() {
+  echo ">>> Creating shared uploads area for CDM & VOCABs"
+  wait_for_container broadsea-hades
+  docker exec -u root broadsea-hades bash -lc '
+    set -euo pipefail
+
+    # Reuse the same user detection you already use
+    pick_user() {
+      local u
+      if [ -n "${HADES_USER:-}" ] && id -u "$HADES_USER" >/dev/null 2>&1; then echo "$HADES_USER"; return; fi
+      for u in rstudio ohdsi; do if id -u "$u" >/dev/null 2>&1; then echo "$u"; return; fi; done
+      getent passwd | awk -F: '"'"'$3>=1000{print $1; exit}'"'"'
+    }
+
+    RS_USER="$(pick_user)"
+    RS_HOME="$(getent passwd "$RS_USER" | awk -F: '"'"'{print $6}'"'"')"
+    RS_GROUP="$(id -gn "$RS_USER" 2>/dev/null || echo "$RS_USER")"
+
+    # Canonical shared drop + convenience symlink in the user home
+    SHARED_ROOT="/opt/hades/uploads"
+    mkdir -p "$SHARED_ROOT/cdm" "$SHARED_ROOT/vocabs"
+
+    # Ensure both users exist if present
+    for U in rstudio ohdsi; do
+      if id -u "$U" >/dev/null 2>&1; then
+        # Make sure each has its home
+        H="$(getent passwd "$U" | awk -F: '"'"'{print $6}'"'"')"
+        [ -n "$H" ] && mkdir -p "$H"
+      fi
+    done
+
+    # Ownership to root is fine when ACLs or 0777 are used; avoid user flips later
+    chown -R root:root "$SHARED_ROOT"
+
+    have_setfacl=0
+    if command -v setfacl >/dev/null 2>&1; then
+      have_setfacl=1
+    fi
+
+    if [ "$have_setfacl" -eq 1 ]; then
+      echo ">>> setfacl available — granting rstudio & ohdsi rwx (with defaults)"
+      # Base perms: group sticky + setgid so new dirs inherit group; world rx (browse), no world write
+      chmod 2775 "$SHARED_ROOT" "$SHARED_ROOT/cdm" "$SHARED_ROOT/vocabs"
+      # Clear any old ACLs then set explicit user ACLs + defaults
+      setfacl -bR "$SHARED_ROOT"
+      for P in "$SHARED_ROOT" "$SHARED_ROOT/cdm" "$SHARED_ROOT/vocabs"; do
+        # Grant users if they exist; ignore if not present
+        id -u rstudio >/dev/null 2>&1 && setfacl -m u:rstudio:rwx "$P" || true
+        id -u ohdsi   >/dev/null 2>&1 && setfacl -m u:ohdsi:rwx   "$P" || true
+        # Defaults so newly uploaded stuff is accessible, too
+        id -u rstudio >/dev/null 2>&1 && setfacl -d -m u:rstudio:rwx "$P" || true
+        id -u ohdsi   >/dev/null 2>&1 && setfacl -d -m u:ohdsi:rwx   "$P" || true
+        # Keep dirs listable and files readable by others (no write)
+        setfacl -m o:rx "$P" || true
+        setfacl -d -m o:rx "$P" || true
+      done
+    else
+      echo ">>> setfacl NOT available — falling back to wide-open (container-local) perms"
+      # 2777 ensures dir traversal + writes by anyone; setgid keeps group consistent
+      chmod 2777 "$SHARED_ROOT" "$SHARED_ROOT/cdm" "$SHARED_ROOT/vocabs"
+    fi
+
+    # Ensure directory execute bit is set (fix for 'visible but empty' symptoms)
+    find "$SHARED_ROOT" -type d -exec chmod +x {} +
+
+    # Convenience link in the detected UI user home
+    ln -sfn "$SHARED_ROOT" "$RS_HOME/uploads"
+    chown -h "$RS_USER:$RS_GROUP" "$RS_HOME/uploads" || true
+
+    echo ">>> Upload here inside the container:"
+    echo "    - $SHARED_ROOT/cdm"
+    echo "    - $SHARED_ROOT/vocabs"
+    echo ">>> And via home symlink:"
+    echo "    - $RS_HOME/uploads/{cdm,vocabs}"
+  '
+}
+
 # Copy any single R script by filename from config/hades/ → ~/scripts/hades/ and symlink under /opt/hades/scripts/
 bootstrap_copy_script() {
   local FILENAME="$1"   # e.g., wipe_omop_iris.R
@@ -452,6 +529,9 @@ bootstrap_copy_script "wipe_omop_iris.R"
 
 echo ">>> Fixing /home/rstudio permissions"
 fix_rstudio_home_permissions
+
+echo ">>> Creating shared /opt/hades/uploads (+ ~/uploads) for CDM & VOCABs"
+bootstrap_hades_uploads
 
 echo ""
 echo "Done."
