@@ -39,14 +39,14 @@ All commands below should be run in your macOS Terminal.
    cd ohdsi-iris-macos-env
    ```
 
-2. **Make the replica script executable and run it:**
+2. **Make the bootstrap_env.sh script executable and run it:**
    ```bash
-   chmod +x scripts/replica.sh
-   ./scripts/replica.sh
+   chmod +x scripts/bootstrap_env.sh
+   ./scripts/bootstrap_env.sh
    ```
    - To **force fresh downloads** of the prebuilt volume tarballs (handy if you hit a `curl 416` or suspect a stale/corrupt cache):
      ```bash
-     ./scripts/replica.sh --fresh
+     ./scripts/bootstrap_env.sh --fresh
      ```
 
    This will:
@@ -158,7 +158,7 @@ All commands below should be run in your macOS Terminal.
   ```
 - **Force fresh volume downloads**
   ```bash
-  ./scripts/replica.sh --fresh
+  ./scripts/bootstrap_env.sh --fresh
   ```
 - **Re-run full restore** (tear down containers, remove volumes, fresh rebuild)
   ```bash
@@ -169,5 +169,5 @@ All commands below should be run in your macOS Terminal.
   docker volume rm dbvolume atlasdb-postgres-data rstudio-home-data rstudio-tmp-data rstudio-rsite-data
 
   # Rebuild everything with fresh volume downloads
-  ./scripts/replica.sh --fresh
+  ./scripts/bootstrap_env.sh --fresh
   ```
