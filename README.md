@@ -72,78 +72,76 @@ All commands below should be run in your macOS Terminal.
      - User: `ohdsi`  
      - Pass: `mypass`
 
-4. **(From RStudio) Run Achilles on IRIS**
+---
 
-   Open **RStudio** at `http://127.0.0.1/hades`, then run **one** of:
+## Quick Reset / Optional Scripts
 
-   ### A) Default mode (no params)
-   Uses defaults (IRIS at `host.docker.internal:1972/USER`, CDM `OMOPCDM53`, RESULTS `OMOPCDM55_RESULTS`, SCRATCH `OMOPCDM55_SCRATCH`). It:
-   - Ensures the IRIS connection
-   - Ensures core RESULTS tables
-   - Skips Achilles SQL regeneration if RESULTS already exist
-   - Populates `ACHILLES_RESULT_CONCEPT` and a WebAPI-shaped `CONCEPT_HIERARCHY`
-   - Adds small IRIS-safe indexes
-   - Always clears WebAPI caches
+These are **optional maintenance utilities** available in RStudio after bootstrap.  
+They are not required for the initial setup, but useful for reseeding or clearing schemas.
 
-   ```r
-   # Either path works (symlink points to the same file):
-   source("~/scripts/hades/initialize_results_iris.R")
-   # or
-   source("/opt/hades/scripts/initialize_results_iris.R")
-   ```
+### 4. Initialize Results (Achilles on IRIS)
 
-   ### B) With parameters (override defaults)
-   ```r
-   sys.source(
-     "~/scripts/hades/initialize_results_iris.R",
-     envir = list2env(list(
-       # IRIS connection
-       irisConnStr      = "jdbc:IRIS://host.docker.internal:1972/USER",
-       irisUser         = "_SYSTEM",
-       irisPassword     = "_SYSTEM",
-       jdbcDriverFolder = "/opt/hades/jdbc_drivers",
+Open **RStudio** at `http://127.0.0.1/hades`, then run **one** of:
 
-       # Schemas and labels
-       cdmSchema        = "OMOPCDM53",
-       resultsSchema    = "OMOPCDM55_RESULTS",
-       scratchSchema    = "OMOPCDM55_SCRATCH",
-       sourceName       = "Client CDM on IRIS",
+#### A) Default mode (recommended)
+Uses defaults (IRIS at `host.docker.internal:1972/USER`, CDM `OMOPCDM53`, RESULTS `OMOPCDM55_RESULTS`, SCRATCH `OMOPCDM55_SCRATCH`).  
+- Ensures the IRIS connection  
+- Ensures core RESULTS tables  
+- Populates `ACHILLES_RESULT_CONCEPT` and `CONCEPT_HIERARCHY`  
+- Adds IRIS-safe indexes  
+- Clears WebAPI caches  
 
-       # Achilles controls
-       cdmVersion       = "5.3",
-       excludeAnalyses  = c(802),
-       numThreads       = 1L,
-       smallCellCount   = 5L,
-       forceAchilles    = FALSE,
+```r
+# Either path works (symlink points to the same file):
+source("~/scripts/hades/initialize_results_iris.R")
+# or
+source("/opt/hades/scripts/initialize_results_iris.R")
+```
 
-       atlasSourceId    = 2L,
-       pgHost           = "broadsea-atlasdb",
-       pgPort           = 5432L,
-       pgDatabase       = "postgres",
-       pgUser           = "postgres",
-       pgPassword       = "mypass"
-     ))
-   )
-   ```
+#### B) With parameters (experimental ⚠️)
+⚠️ This assumes **OMOP CDM data has already been seeded into IRIS**.  
+Changing schema names may not work reliably yet — use default mode unless you know what you’re doing.
 
-5. **(From RStudio) Wipe CDM + RESULTS**
+```r
+sys.source(
+  "~/scripts/hades/initialize_results_iris.R",
+  envir = list2env(list(
+    cdmSchema        = "OMOPCDM53",
+    resultsSchema    = "OMOPCDM55_RESULTS",
+    scratchSchema    = "OMOPCDM55_SCRATCH"
+  ))
+)
+```
 
-   The **wipe script** (`wipe_omop_iris.R`) will:
-   - Connect to IRIS via JDBC
-   - Drop **all views, all foreign keys, and all tables** in both the CDM schema (`OMOPCDM53`) and RESULTS schema (`OMOPCDM55_RESULTS`)
-   - Recreate the schema shells (empty markers) so they remain visible
-   - Always clears WebAPI caches
+---
 
-   **Usage (RStudio console):**
-   ```r
-   # Either path works:
-   source("~/scripts/hades/wipe_omop_iris.R")
-   # or
-   source("/opt/hades/scripts/wipe_omop_iris.R")
-   ```
+### 5. Wipe CDM + RESULTS
 
-   This will **completely remove all data and tables** in CDM + RESULTS.  
-   You must re-run `initialize_results_iris.R` afterwards to re-create the tables and repopulate data.
+The **wipe script** (`wipe_omop_iris.R`) will:
+- Connect to IRIS via JDBC
+- Drop **all views, foreign keys, and tables** in both the CDM schema (`OMOPCDM53`) and RESULTS schema (`OMOPCDM55_RESULTS`)
+- Recreate empty schema shells (so they remain visible)
+- Always clear WebAPI caches
+
+**Default usage (wipes OMOPCDM53 + OMOPCDM55_RESULTS):**
+```r
+source("~/scripts/hades/wipe_omop_iris.R")
+```
+
+**With parameters (recommended for client-specific schemas):**
+```r
+sys.source(
+  "~/scripts/hades/wipe_omop_iris.R",
+  envir = list2env(list(
+    cdmSchema        = "OMOPCDM53",
+    resultsSchema    = "OMOPCDM55_RESULTS"
+  ))
+)
+```
+
+After a wipe, re-run **initialize_results_iris.R** to re-create tables and repopulate data.
+
+---
 
 ## Notes
 - `.env` is committed for zero-touch setup; adjust values if needed.
